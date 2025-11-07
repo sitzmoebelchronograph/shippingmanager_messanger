@@ -27,10 +27,10 @@ module.exports = [
       '.git/**',
       'coverage/**',
       '*.min.js',
-      'jsdoc-template/**',  // External JSDoc template
-      'development/**',     // Development/testing scripts
-      'public/docs/**',     // Generated JSDoc documentation
-      'reports/**'          // Security scan reports
+      'docs/jsdoc-template/**',  // External JSDoc template
+      'development/**',          // Development/testing scripts
+      'public/docs/**',          // Generated JSDoc documentation
+      'reports/**'               // Security scan reports
     ]
   },
   {
