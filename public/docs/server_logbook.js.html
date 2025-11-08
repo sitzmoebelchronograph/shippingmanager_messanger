@@ -3,7 +3,7 @@
 <head>
     
     <meta charset="utf-8">
-    <title>server/routes/alliance.js - Documentation</title>
+    <title>server/logbook.js - Documentation</title>
     
     
     <script src="scripts/prettify/prettify.js"></script>
@@ -276,7 +276,7 @@
 
 <div id="main">
     
-    <h1 class="page-title">server/routes/alliance.js</h1>
+    <h1 class="page-title">server/logbook.js</h1>
     
 
     
@@ -287,313 +287,417 @@
     <section>
         <article>
             <pre class="prettyprint source linenums"><code>/**
- * @fileoverview Alliance Chat API Routes
+ * Autopilot Logbook Module
  *
- * This module defines HTTP endpoints for alliance chat functionality, including
- * fetching the chat feed, sending messages, and retrieving alliance member information.
- * It acts as a proxy between the frontend and the Shipping Manager game API.
+ * Manages logging of all autopilot actions (success and errors) for debugging,
+ * transparency, and accountability. Logs are stored per-user in JSON format.
  *
- * Key Features:
- * - Chat feed retrieval with message transformation (API format → client format)
- * - Message sending with validation and rate limiting
- * - Company name lookup by user ID (used for chat rendering)
- * - Alliance member list retrieval
- * - Graceful handling of users not in alliance (no_alliance flag)
- *
- * Why This Exists:
- * - Centralizes alliance-related endpoints
- * - Abstracts game API details from frontend
- * - Provides input validation and sanitization
- * - Implements rate limiting on message sending
- * - Transforms timestamps and enriches data with company names
- *
- * Security Considerations:
- * - Message length validation (0-1000 characters)
- * - Input sanitization via validator.trim() and validator.unescape()
- * - Rate limiting: 30 messages per minute (messageLimiter)
- * - User ID validation (must be positive integer)
- * - Authentication inherited from apiCall() session cookie
- *
- * No Alliance Handling:
- * - All endpoints check getAllianceId() before proceeding
- * - Returns appropriate response when user not in alliance
- * - Prevents 404 errors from game API alliance endpoints
- *
- * @requires express - Router and middleware
- * @requires validator - Input validation and sanitization
- * @requires ../utils/api - API helper functions (apiCall, getCompanyName, etc.)
- * @requires ../middleware - Rate limiting middleware
- * @module server/routes/alliance
+ * Features:
+ * - In-memory cache with periodic disk writes (every 30 seconds)
+ * - Atomic file writes to prevent corruption
+ * - Filter support (status, time range, search)
+ * - Export to TXT, CSV, JSON formats
+ * - Manual deletion (no automatic rotation)
  */
 
-const express = require('express');
-const validator = require('validator');
-const { apiCall, getCompanyName, getChatFeed, getAllianceId } = require('../utils/api');
-const { messageLimiter } = require('../middleware');
+const fs = require('fs').promises;
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+const logger = require('./utils/logger');
 
-const router = express.Router();
+// Configuration
+const { getLogDir } = require('./utils/paths');
+const LOG_DIR = path.join(getLogDir(), 'autopilot');
+const LOG_FILE_NAME = 'autopilot-log.json';
+const WRITE_INTERVAL = 30000; // 30 seconds
+
+// In-memory cache: { userId: [...logEntries] }
+const logCache = new Map();
+
+// Dirty flags: { userId: boolean }
+const dirtyFlags = new Map();
+
+// Write timer
+let writeTimer = null;
 
 /**
- * GET /api/chat - Retrieves alliance chat feed with enriched message data.
- *
- * This endpoint fetches the alliance chat feed from the game API, transforms
- * the raw feed data into a client-friendly format with company names and
- * formatted timestamps, and returns it as JSON.
- *
- * Why This Transformation:
- * - API returns user_id, but frontend needs company name for display
- * - Timestamps converted from Unix epoch to UTC string for readability
- * - Separates 'chat' messages from 'feed' events for different UI rendering
- * - Company names cached to reduce API calls
- *
- * Message Types:
- * 1. Chat Messages (type: 'chat')
- *    - Fetches company name via getCompanyName() (cached)
- *    - Includes message text and user_id
- * 2. Feed Events (type: 'feed')
- *    - Alliance joins, route completions, etc.
- *    - Company name already in replacements object
- *
- * No Alliance Response:
- * - Returns { no_alliance: true, messages: [] } when user not in alliance
- * - Frontend can detect this and hide alliance features
- *
- * Response Format:
- * [
- *   {
- *     type: 'chat',
- *     company: 'ABC Shipping',
- *     message: 'Hello!',
- *     timestamp: 'Mon, 23 Oct 2025 14:30:00 GMT',
- *     user_id: 12345
- *   },
- *   {
- *     type: 'feed',
- *     feedType: 'alliance_member_joined',
- *     company: 'XYZ Corp',
- *     timestamp: 'Mon, 23 Oct 2025 14:25:00 GMT'
- *   }
- * ]
- *
- * Side Effects:
- * - Makes API call to /alliance/get-chat-feed
- * - May make multiple API calls to /user/get-company for uncached names
- *
- * @name GET /api/chat
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response with messages array
+ * Initialize the logbook system
+ * Start periodic disk writes
  */
-router.get('/chat', async (req, res) => {
-  if (!getAllianceId()) {
-    return res.json({ no_alliance: true, messages: [] });
+function initialize() {
+  // Ensure data directory exists
+  fs.mkdir(LOG_DIR, { recursive: true }).catch(err => {
+    logger.error('Failed to create log directory:', err);
+  });
+
+  // Start periodic write timer
+  if (!writeTimer) {
+    writeTimer = setInterval(flushAllToDisk, WRITE_INTERVAL);
+    logger.log('Logbook: Periodic write timer started (30s interval)');
   }
+}
+
+/**
+ * Get the log file path for a user
+ */
+function getLogFilePath(userId) {
+  return path.join(LOG_DIR, `${userId}-${LOG_FILE_NAME}`);
+}
+
+/**
+ * Load logs from disk into memory cache
+ */
+async function loadLogsFromDisk(userId) {
+  const filePath = getLogFilePath(userId);
 
   try {
-    const feed = await getChatFeed();
-    const messages = [];
+    const data = await fs.readFile(filePath, 'utf8');
+    const logs = JSON.parse(data);
+    logCache.set(userId, logs);
+    logger.log(`Logbook: Loaded ${logs.length} entries for user ${userId}`);
+    return logs;
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      // File doesn't exist yet - create empty array
+      logCache.set(userId, []);
+      return [];
+    }
+    logger.error(`Logbook: Failed to load logs for user ${userId}:`, err);
+    logCache.set(userId, []);
+    return [];
+  }
+}
 
-    for (const msg of feed) {
-      if (msg.type === 'chat') {
-        const companyName = await getCompanyName(msg.user_id);
-        const timestamp = new Date(msg.time_created * 1000).toUTCString();
-        messages.push({
-          type: 'chat',
-          company: companyName,
-          message: msg.message,
-          timestamp: timestamp,
-          user_id: msg.user_id
-        });
-      } else if (msg.type === 'feed') {
-        const timestamp = new Date(msg.time_created * 1000).toUTCString();
-        messages.push({
-          type: 'feed',
-          feedType: msg.feed_type,
-          company: msg.replacements.company_name,
-          timestamp: timestamp
-        });
+/**
+ * Get logs from cache (load from disk if not cached)
+ */
+async function getLogsFromCache(userId) {
+  if (!logCache.has(userId)) {
+    await loadLogsFromDisk(userId);
+  }
+  return logCache.get(userId) || [];
+}
+
+/**
+ * Write logs to disk atomically (temp file + rename)
+ */
+async function writeLogsToDisk(userId, logs) {
+  const filePath = getLogFilePath(userId);
+  const tempPath = `${filePath}.tmp`;
+
+  try {
+    const data = JSON.stringify(logs, null, 2);
+    await fs.writeFile(tempPath, data, 'utf8');
+    await fs.rename(tempPath, filePath);
+    dirtyFlags.set(userId, false);
+    logger.log(`Logbook: Wrote ${logs.length} entries to disk for user ${userId}`);
+  } catch (err) {
+    logger.error(`Logbook: Failed to write logs for user ${userId}:`, err);
+    // Clean up temp file if it exists
+    try {
+      await fs.unlink(tempPath);
+    } catch (unlinkErr) {
+      // Ignore - file might not exist
+    }
+  }
+}
+
+/**
+ * Flush all dirty caches to disk
+ */
+async function flushAllToDisk() {
+  const flushPromises = [];
+
+  for (const [userId, isDirty] of dirtyFlags.entries()) {
+    if (isDirty &amp;&amp; logCache.has(userId)) {
+      const logs = logCache.get(userId);
+      flushPromises.push(writeLogsToDisk(userId, logs));
+    }
+  }
+
+  if (flushPromises.length > 0) {
+    await Promise.all(flushPromises);
+  }
+}
+
+/**
+ * Log an autopilot action
+ *
+ * @param {string} userId - User ID
+ * @param {string} autopilot - Autopilot name (e.g., "Auto-Depart", "Auto-Fuel")
+ * @param {string} status - "SUCCESS" or "ERROR"
+ * @param {string} summary - Human-readable summary (e.g., "12 vessels | +$1,876,204")
+ * @param {object} details - Autopilot-specific details object
+ * @returns {object} The created log entry
+ */
+async function logAutopilotAction(userId, autopilot, status, summary, details = {}) {
+  const logEntry = {
+    id: uuidv4(),
+    timestamp: Date.now(),
+    autopilot,
+    status,
+    summary,
+    details
+  };
+
+  // Get logs from cache
+  const logs = await getLogsFromCache(userId);
+
+  // Prepend new entry (newest first)
+  logs.unshift(logEntry);
+
+  // Update cache
+  logCache.set(userId, logs);
+  dirtyFlags.set(userId, true);
+
+  logger.log(`Logbook: [${status}] ${autopilot}: ${summary}`);
+
+  // Broadcast to all connected clients via WebSocket
+  try {
+    const { broadcastToUser } = require('./websocket');
+    broadcastToUser(userId, 'logbook_update', logEntry);
+  } catch (err) {
+    // Silently fail if WebSocket not available (e.g., during startup)
+    // Don't log error to avoid spam - WebSocket might not be initialized yet
+  }
+
+  return logEntry;
+}
+
+/**
+ * Recursively searches through an object for a search term
+ * @param {*} obj - Object to search through
+ * @param {string} searchTerm - Term to search for (case-insensitive)
+ * @returns {boolean} - True if term found anywhere in object
+ */
+function searchInObject(obj, searchTerm) {
+  if (!searchTerm) return true;
+
+  const lowerSearch = searchTerm.toLowerCase();
+
+  // Handle primitive types
+  if (obj === null || obj === undefined) {
+    return false;
+  }
+  if (typeof obj !== 'object') {
+    return String(obj).toLowerCase().includes(lowerSearch);
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.some(item => searchInObject(item, searchTerm));
+  }
+
+  // Handle objects
+  for (const value of Object.values(obj)) {
+    if (searchInObject(value, searchTerm)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Get log entries with optional filters
+ *
+ * @param {string} userId - User ID
+ * @param {object} filters - Filter options
+ * @param {string} filters.status - "SUCCESS", "ERROR", "WARNING", or "ALL"
+ * @param {string} filters.timeRange - "today", "yesterday", "48h", "7days", "lastweek", "30days", "lastmonth", or "all"
+ * @param {string} filters.autopilot - Autopilot name or "ALL"
+ * @param {string} filters.search - Search term (full-text search across all fields including details)
+ * @returns {array} Filtered log entries
+ */
+async function getLogEntries(userId, filters = {}) {
+  let logs = await getLogsFromCache(userId);
+
+  // Apply status filter
+  if (filters.status &amp;&amp; filters.status !== 'ALL') {
+    logs = logs.filter(log => log.status === filters.status);
+  }
+
+  // Apply autopilot filter
+  if (filters.autopilot &amp;&amp; filters.autopilot !== 'ALL') {
+    logs = logs.filter(log => log.autopilot === filters.autopilot);
+  }
+
+  // Apply time range filter
+  if (filters.timeRange &amp;&amp; filters.timeRange !== 'all') {
+    const now = Date.now();
+    let cutoff;
+
+    if (filters.timeRange === 'today') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      cutoff = today.getTime();
+    } else if (filters.timeRange === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      logs = logs.filter(log => log.timestamp >= yesterday.getTime() &amp;&amp; log.timestamp &lt; today.getTime());
+      return logs; // Early return for yesterday (specific day filter)
+    } else if (filters.timeRange === '48h') {
+      cutoff = now - (48 * 60 * 60 * 1000);
+    } else if (filters.timeRange === '7days') {
+      cutoff = now - (7 * 24 * 60 * 60 * 1000);
+    } else if (filters.timeRange === 'lastweek') {
+      // Last week = previous Monday to Sunday
+      const today = new Date();
+      const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Days to go back to this week's Monday
+      const thisMonday = new Date(today);
+      thisMonday.setDate(today.getDate() - daysToMonday);
+      thisMonday.setHours(0, 0, 0, 0);
+
+      const lastMonday = new Date(thisMonday);
+      lastMonday.setDate(thisMonday.getDate() - 7);
+
+      const lastSunday = new Date(thisMonday);
+      lastSunday.setMilliseconds(-1); // End of last Sunday
+
+      logs = logs.filter(log => log.timestamp >= lastMonday.getTime() &amp;&amp; log.timestamp &lt;= lastSunday.getTime());
+
+      // Apply remaining filters
+      if (filters.search &amp;&amp; filters.search.trim() !== '') {
+        const searchTerm = filters.search.toLowerCase();
+        logs = logs.filter(log => searchInObject(log, searchTerm));
       }
+
+      return logs; // Early return
+    } else if (filters.timeRange === '30days') {
+      cutoff = now - (30 * 24 * 60 * 60 * 1000);
+    } else if (filters.timeRange === 'lastmonth') {
+      // Last month = previous calendar month
+      const today = new Date();
+      const firstDayOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const firstDayOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+
+      logs = logs.filter(log => log.timestamp >= firstDayOfLastMonth.getTime() &amp;&amp; log.timestamp &lt; firstDayOfThisMonth.getTime());
+
+      // Apply remaining filters
+      if (filters.search &amp;&amp; filters.search.trim() !== '') {
+        const searchTerm = filters.search.toLowerCase();
+        logs = logs.filter(log => searchInObject(log, searchTerm));
+      }
+
+      return logs; // Early return
     }
 
-    res.json(messages);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/send-message - Sends a message to alliance chat with validation and rate limiting.
- *
- * This endpoint receives a chat message from the frontend, validates and sanitizes it,
- * then forwards it to the game API. It's the primary workaround for the in-game chat bug
- * that causes page reloads with certain characters.
- *
- * Why This Endpoint:
- * - Bypasses in-game chat interface that has character bugs
- * - Provides input validation before hitting game API
- * - Sanitizes input to prevent XSS or injection attacks
- * - Rate limits to prevent spam (30 messages/minute)
- *
- * Validation Rules:
- * - Message must be string type
- * - Length: 1-1000 characters (game API limit)
- * - Trimmed of leading/trailing whitespace
- * - HTML entities unescaped (validator.unescape)
- *
- * Rate Limiting:
- * - Applied via messageLimiter middleware
- * - Limit: 30 requests per minute per IP
- * - Returns 429 Too Many Requests when exceeded
- * - Prevents spam and reduces ToS violation risk
- *
- * Sanitization:
- * - validator.trim() - Removes leading/trailing whitespace
- * - validator.unescape() - Converts HTML entities to characters
- * - Prevents empty messages after trimming
- *
- * No Alliance Handling:
- * - Returns 400 error if user not in alliance
- * - Prevents API call to /alliance/post-chat with null alliance_id
- *
- * Side Effects:
- * - Makes API call to /alliance/post-chat
- * - Message appears in alliance chat feed immediately
- * - WebSocket broadcast will include this message in next refresh cycle
- *
- * @name POST /api/send-message
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object with { message: string } body
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response { success: true } or error
- */
-router.post('/send-message', messageLimiter, express.json(), async (req, res) => {
-  if (!getAllianceId()) {
-    return res.status(400).json({ error: 'You are not in an alliance' });
+    if (cutoff !== undefined) {
+      logs = logs.filter(log => log.timestamp >= cutoff);
+    }
   }
 
-  const { message } = req.body;
-
-  if (!message || typeof message !== 'string' || message.length === 0 || message.length > 1000) {
-    return res.status(400).json({ error: 'Invalid message length or content' });
-  }
-
-  const sanitizedMessage = validator.trim(message);
-
-  try {
-    await apiCall('/alliance/post-chat', 'POST', {
-      alliance_id: getAllianceId(),
-      text: validator.unescape(sanitizedMessage)
+  // Apply search filter (full-text search across all fields)
+  if (filters.search &amp;&amp; filters.search.trim() !== '') {
+    const searchTerm = filters.search.toLowerCase();
+    console.log('[Logbook] Searching for:', searchTerm);
+    logs = logs.filter(log => {
+      const found = searchInObject(log, searchTerm);
+      if (found) {
+        console.log('[Logbook] Found match in log:', log.id, log.autopilot, log.summary);
+      }
+      return found;
     });
-
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.log('[Logbook] Search results:', logs.length, 'entries found');
   }
-});
+
+  return logs;
+}
 
 /**
- * POST /api/company-name - Retrieves company name for a given user ID.
- *
- * This endpoint looks up a company name by user ID, leveraging the cached
- * getCompanyName() function to minimize API calls. Used by frontend for
- * displaying company names in various UI contexts.
- *
- * Why This Endpoint:
- * - Centralizes company name lookups
- * - Leverages server-side cache (reduces API calls)
- * - Provides fallback for failed lookups
- * - Validates user_id to prevent invalid API calls
- *
- * Validation:
- * - user_id must be positive integer
- * - Returns 400 error for invalid user_id
- *
- * Caching:
- * - getCompanyName() uses Map-based cache
- * - Cache persists for server lifetime
- * - Significant performance improvement for repeated lookups
- *
- * Fallback:
- * - Returns "User {userId}" if lookup fails
- * - Never throws error to frontend
- *
- * Side Effects:
- * - May make API call to /user/get-company on cache miss
- * - Stores result in userNameCache
- *
- * @name POST /api/company-name
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object with { user_id: number } body
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response { company_name: string }
+ * Delete all logs for a user (manual cleanup)
  */
-router.post('/company-name', express.json(), async (req, res) => {
-  const { user_id } = req.body;
-  if (!Number.isInteger(user_id) || user_id &lt;= 0) {
-    return res.status(400).json({ error: 'Invalid user ID' });
-  }
+async function deleteAllLogs(userId) {
+  const filePath = getLogFilePath(userId);
 
   try {
-    const companyName = await getCompanyName(user_id);
-    res.json({ company_name: companyName });
-  } catch (error) {
-    res.status(500).json({ error: 'Could not load company name' });
+    // Clear cache
+    logCache.set(userId, []);
+    dirtyFlags.set(userId, false);
+
+    // Delete file
+    await fs.unlink(filePath);
+    logger.log(`Logbook: Deleted all logs for user ${userId}`);
+    return true;
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      // File doesn't exist - that's fine
+      return true;
+    }
+    logger.error(`Logbook: Failed to delete logs for user ${userId}:`, err);
+    return false;
   }
-});
+}
 
 /**
- * GET /api/alliance-members - Retrieves list of all alliance members.
- *
- * This endpoint fetches the complete alliance member roster from the game API
- * and returns it as a simplified array of user_id and company_name pairs.
- *
- * Why This Endpoint:
- * - Provides member list for UI features (member directory, mentions, etc.)
- * - Simplifies game API response (returns only needed fields)
- * - Gracefully handles users not in alliance
- *
- * No Alliance Handling:
- * - Returns empty array [] when user not in alliance
- * - Prevents 404 errors from game API
- *
- * Response Format:
- * [
- *   { user_id: 12345, company_name: "ABC Shipping" },
- *   { user_id: 67890, company_name: "XYZ Corp" }
- * ]
- *
- * Side Effects:
- * - Makes API call to /alliance/get-alliance-members
- *
- * @name GET /api/alliance-members
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response with members array
+ * Get log file size in bytes
  */
-router.get('/alliance-members', async (req, res) => {
-  if (!getAllianceId()) {
-    return res.json([]);
-  }
+async function getLogFileSize(userId) {
+  const filePath = getLogFilePath(userId);
 
   try {
-    const data = await apiCall('/alliance/get-alliance-members', 'POST', {});
-    const members = data.data.members.map(member => ({
-      user_id: member.user_id,
-      company_name: member.company_name
-    }));
-    res.json(members);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const stats = await fs.stat(filePath);
+    return stats.size;
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return 0;
+    }
+    logger.error(`Logbook: Failed to get file size for user ${userId}:`, err);
+    return 0;
   }
+}
+
+/**
+ * Format file size in human-readable format
+ */
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  if (bytes &lt; 1024) return `${bytes} B`;
+  if (bytes &lt; 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+/**
+ * Shutdown the logbook system gracefully
+ */
+async function shutdown() {
+  if (writeTimer) {
+    clearInterval(writeTimer);
+    writeTimer = null;
+  }
+
+  // Flush all dirty caches
+  await flushAllToDisk();
+  logger.log('Logbook: Shutdown complete');
+}
+
+// Initialize on module load
+initialize();
+
+// Graceful shutdown on process exit
+process.on('SIGINT', async () => {
+  await shutdown();
+  process.exit(0);
 });
 
-module.exports = router;
+process.on('SIGTERM', async () => {
+  await shutdown();
+  process.exit(0);
+});
+
+module.exports = {
+  logAutopilotAction,
+  getLogEntries,
+  deleteAllLogs,
+  getLogFileSize,
+  formatFileSize,
+  flushAllToDisk,
+  shutdown
+};
 </code></pre>
         </article>
     </section>

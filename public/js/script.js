@@ -58,6 +58,7 @@ import {
 import { fetchAllianceMembers } from './modules/api.js';
 import { initForecastCalendar, updateEventDiscount } from './modules/forecast-calendar.js';
 import { initEventInfo, updateEventData } from './modules/event-info.js';
+import { initLogbook, prependLogEntry } from './modules/logbook.js';
 
 // Security: Block demo mode parameter in URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -172,7 +173,8 @@ import {
   buyCampaign,
   showContactList,
   closeContactList,
-  showAnchorInfo
+  showAnchorInfo,
+  showConfirmDialog
 } from './modules/ui-dialogs.js';
 
 // Import coop management
@@ -2086,11 +2088,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('closeContactListBtn').addEventListener('click', closeContactList);
 
   // --- Settings and Dialogs Event Listeners ---
+
   // Open settings dialog
-  document.getElementById('settingsBtn').addEventListener('click', () => showSettings(settings));
+  document.getElementById('settingsBtn').addEventListener('click', () => {
+    showSettings(settings);
+  });
 
   // Close settings dialog
   document.getElementById('closeSettingsBtn').addEventListener('click', closeSettings);
+
+  // Delete logbook button with confirmation
+  document.getElementById('deleteLogbookBtn').addEventListener('click', async () => {
+    const confirmed = await showConfirmDialog({
+      title: 'Delete All Logbook Entries?',
+      message: '<p>This will permanently delete <strong style="color: #ef4444;">the entire logbook history</strong>.</p><p style="color: #ef4444; font-weight: 600; margin-top: 12px;">⚠️ This action cannot be undone!</p>',
+      confirmText: 'Delete All',
+      cancelText: 'Cancel',
+      narrow: true
+    });
+
+    if (confirmed) {
+      try {
+        const { deleteAllLogsConfirmed } = await import('./modules/logbook.js');
+        await deleteAllLogsConfirmed();
+        showNotification('All logbook entries deleted', 'success');
+      } catch (error) {
+        console.error('[Logbook] Delete failed:', error);
+        showNotification('Failed to delete logbook entries', 'error');
+      }
+    }
+  });
 
   // Open documentation in new tab
   document.getElementById('docsBtn').addEventListener('click', () => {
@@ -2127,6 +2154,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Initialize event info module
   initEventInfo();
+
+  // Initialize logbook module
+  initLogbook();
 
   // Open coop overlay
   document.getElementById('coopBtn').addEventListener('click', showCoopOverlay);
@@ -3197,6 +3227,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       const status = data.paused ? 'paused' : 'resumed';
       const icon = data.paused ? '⏸️' : '▶️';
       window.showSideNotification(`${icon} Autopilot ${status}`, data.paused ? 'warning' : 'success');
+    }
+  };
+
+  // Logbook update handler
+  window.handleLogbookUpdate = function(logEntry) {
+    // Call logbook module to prepend new entry
+    if (typeof prependLogEntry === 'function') {
+      prependLogEntry(logEntry);
     }
   };
 

@@ -12,6 +12,7 @@ const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
 const config = require('../config');
+const { logAutopilotAction } = require('../logbook');
 
 const DEBUG_MODE = config.DEBUG_MODE;
 
@@ -113,25 +114,25 @@ async function autoRepairVessels(autopilotPaused, broadcastToUser, tryUpdateAllD
 
       logger.log(`[Auto-Repair] Repaired ${result.count} vessels - API returned cost: $${result.totalCost.toLocaleString()}, Calculated cost: $${costData.totalCost.toLocaleString()}`);
 
+      // Build vessel list with names, wear, and costs
+      const vesselList = vesselsNeedingRepair.map(vessel => {
+        // Find cost data for this vessel
+        const costVessel = costData.vessels.find(v => v.id === vessel.id);
+        const wearMaintenance = costVessel?.maintenance_data?.find(m => m.type === 'wear');
+        const cost = wearMaintenance?.price;
+
+        return {
+          id: vessel.id,
+          name: vessel.name,
+          wear: vessel.wear,
+          cost: cost
+        };
+      });
+
       if (broadcastToUser) {
         if (DEBUG_MODE) {
           logger.log(`[Auto-Repair] Broadcasting vessels_repaired event (Desktop notifications: ${settings.enableDesktopNotifications ? 'ENABLED' : 'DISABLED'})`);
         }
-
-        // Build vessel list with names, wear, and costs
-        const vesselList = vesselsNeedingRepair.map(vessel => {
-          // Find cost data for this vessel
-          const costVessel = costData.vessels.find(v => v.id === vessel.id);
-          const wearMaintenance = costVessel?.maintenance_data?.find(m => m.type === 'wear');
-          const cost = wearMaintenance?.price;
-
-          return {
-            id: vessel.id,
-            name: vessel.name,
-            wear: vessel.wear,
-            cost: cost
-          };
-        });
 
         broadcastToUser(userId, 'vessels_repaired', {
           count: result.count,
@@ -139,6 +140,19 @@ async function autoRepairVessels(autopilotPaused, broadcastToUser, tryUpdateAllD
           vessels: vesselList
         });
       }
+
+      // Log to autopilot logbook
+      await logAutopilotAction(
+        userId,
+        'Auto-Repair',
+        'SUCCESS',
+        `${result.count} vessels | -$${costData.totalCost.toLocaleString()}`,
+        {
+          vesselCount: result.count,
+          totalCost: costData.totalCost,
+          repairedVessels: vesselList
+        }
+      );
 
       // Update all data to refresh repair badge count
       await tryUpdateAllData();
@@ -148,6 +162,18 @@ async function autoRepairVessels(autopilotPaused, broadcastToUser, tryUpdateAllD
 
   } catch (error) {
     logger.error('[Auto-Repair] Error:', error.message);
+
+    // Log error to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Repair',
+      'ERROR',
+      `Repair failed: ${error.message}`,
+      {
+        error: error.message,
+        stack: error.stack
+      }
+    );
   }
 }
 

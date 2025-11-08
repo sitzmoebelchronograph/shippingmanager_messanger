@@ -50,6 +50,7 @@ process.on('uncaughtException', (err) => {
  * @requires ./server/routes/messenger
  * @requires ./server/routes/game
  * @requires ./server/routes/settings
+ * @requires ./server/routes/logbook
  */
 
 const express = require('express');
@@ -110,6 +111,7 @@ const coopRoutes = require('./server/routes/coop');
 const forecastRoutes = require('./server/routes/forecast');
 const anchorRoutes = require('./server/routes/anchor');
 const healthRoutes = require('./server/routes/health');
+const logbookRoutes = require('./server/routes/logbook');
 
 // Initialize Express app
 const app = express();
@@ -150,6 +152,7 @@ app.use('/api', coopRoutes);
 app.use('/api/forecast', forecastRoutes);
 app.use('/api', anchorRoutes);
 app.use('/health', healthRoutes);
+app.use('/api/logbook', logbookRoutes);
 
 // Autopilot pause/resume endpoint
 app.post('/api/autopilot/toggle', (req, res) => {

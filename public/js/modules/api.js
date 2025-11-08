@@ -755,3 +755,91 @@ export async function fetchUserCompany() {
     throw error;
   }
 }
+
+/**
+ * Fetches autopilot log entries with optional filters
+ *
+ * @param {Object} filters - Filter options
+ * @param {string} filters.status - "SUCCESS", "ERROR", or "ALL"
+ * @param {string} filters.timeRange - "today", "yesterday", "48h", or "all"
+ * @param {string} filters.search - Search term for autopilot name or summary
+ * @returns {Promise<Object>} Log entries data
+ * @throws {Error} If fetch fails
+ */
+export async function fetchLogbookEntries(filters = {}) {
+  try {
+    const response = await fetch(window.apiUrl('/api/logbook/get-logs'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(filters)
+    });
+    if (!response.ok) throw new Error('Failed to fetch log entries');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching log entries:', error);
+    throw error;
+  }
+}
+
+/**
+ * Downloads autopilot logs in specified format
+ *
+ * @param {string} format - "txt", "csv", or "json"
+ * @param {Object} filters - Same filters as fetchLogbookEntries
+ * @returns {Promise<string>} File content as text
+ * @throws {Error} If download fails
+ */
+export async function downloadLogbookExport(format, filters = {}) {
+  try {
+    const response = await fetch(window.apiUrl('/api/logbook/download'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, ...filters })
+    });
+    if (!response.ok) throw new Error('Failed to download logs');
+    return await response.text();
+  } catch (error) {
+    console.error('Error downloading logs:', error);
+    throw error;
+  }
+}
+
+/**
+ * Deletes all autopilot logs for the current user
+ *
+ * @returns {Promise<Object>} Success response
+ * @throws {Error} If deletion fails
+ */
+export async function deleteAllLogs() {
+  try {
+    const response = await fetch(window.apiUrl('/api/logbook/delete-all'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    if (!response.ok) throw new Error('Failed to delete logs');
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting logs:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetches current log file size
+ *
+ * @returns {Promise<Object>} File size data
+ * @property {number} bytes - Size in bytes
+ * @property {string} formatted - Human-readable size (e.g., "2.4 MB")
+ * @throws {Error} If fetch fails
+ */
+export async function fetchLogbookFileSize() {
+  try {
+    const response = await fetch(window.apiUrl('/api/logbook/file-size'));
+    if (!response.ok) throw new Error('Failed to fetch file size');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching file size:', error);
+    throw error;
+  }
+}

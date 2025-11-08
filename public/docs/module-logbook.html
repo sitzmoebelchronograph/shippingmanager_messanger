@@ -3,7 +3,7 @@
 <head>
     
     <meta charset="utf-8">
-    <title>server/routes/alliance.js - Documentation</title>
+    <title>logbook - Documentation</title>
     
     
     <script src="scripts/prettify/prettify.js"></script>
@@ -276,327 +276,1618 @@
 
 <div id="main">
     
-    <h1 class="page-title">server/routes/alliance.js</h1>
+    <h1 class="page-title">logbook</h1>
     
 
     
 
 
 
+
+<section>
+
+<header>
     
-    <section>
-        <article>
-            <pre class="prettyprint source linenums"><code>/**
- * @fileoverview Alliance Chat API Routes
- *
- * This module defines HTTP endpoints for alliance chat functionality, including
- * fetching the chat feed, sending messages, and retrieving alliance member information.
- * It acts as a proxy between the frontend and the Shipping Manager game API.
- *
- * Key Features:
- * - Chat feed retrieval with message transformation (API format → client format)
- * - Message sending with validation and rate limiting
- * - Company name lookup by user ID (used for chat rendering)
- * - Alliance member list retrieval
- * - Graceful handling of users not in alliance (no_alliance flag)
- *
- * Why This Exists:
- * - Centralizes alliance-related endpoints
- * - Abstracts game API details from frontend
- * - Provides input validation and sanitization
- * - Implements rate limiting on message sending
- * - Transforms timestamps and enriches data with company names
- *
- * Security Considerations:
- * - Message length validation (0-1000 characters)
- * - Input sanitization via validator.trim() and validator.unescape()
- * - Rate limiting: 30 messages per minute (messageLimiter)
- * - User ID validation (must be positive integer)
- * - Authentication inherited from apiCall() session cookie
- *
- * No Alliance Handling:
- * - All endpoints check getAllianceId() before proceeding
- * - Returns appropriate response when user not in alliance
- * - Prevents 404 errors from game API alliance endpoints
- *
- * @requires express - Router and middleware
- * @requires validator - Input validation and sanitization
- * @requires ../utils/api - API helper functions (apiCall, getCompanyName, etc.)
- * @requires ../middleware - Rate limiting middleware
- * @module server/routes/alliance
- */
+        
+            
+        
+    
+</header>
 
-const express = require('express');
-const validator = require('validator');
-const { apiCall, getCompanyName, getChatFeed, getAllianceId } = require('../utils/api');
-const { messageLimiter } = require('../middleware');
+<article>
+    
+        <div class="container-overview">
+        
+            
+                <div class="description usertext"><p>Autopilot Logbook Module - Display and manage autopilot action logs</p>
+<p>Provides transparency into all autopilot operations with SUCCESS/ERROR tracking.
+Features table view with filters, search, expand/collapse details, and export functionality.</p>
+<p>Key Features:</p>
+<ul>
+<li>Real-time log updates via WebSocket</li>
+<li>Filters: Status (All/Success/Warning/Error), Time Range (Today/Yesterday/48h/7days/lastweek/30days/lastmonth/All), Autopilot (dynamic list)</li>
+<li>Search: Full-text search across all fields including nested details</li>
+<li>Expand/collapse: Click rows to see detailed operation data, double-click details to collapse</li>
+<li>Export: Download logs as TXT, CSV, or JSON</li>
+<li>Smart auto-prepend: New entries appear at top without scrolling user</li>
+</ul></div>
+            
 
-const router = express.Router();
+            
+                
 
-/**
- * GET /api/chat - Retrieves alliance chat feed with enriched message data.
- *
- * This endpoint fetches the alliance chat feed from the game API, transforms
- * the raw feed data into a client-friendly format with company names and
- * formatted timestamps, and returns it as JSON.
- *
- * Why This Transformation:
- * - API returns user_id, but frontend needs company name for display
- * - Timestamps converted from Unix epoch to UTC string for readability
- * - Separates 'chat' messages from 'feed' events for different UI rendering
- * - Company names cached to reduce API calls
- *
- * Message Types:
- * 1. Chat Messages (type: 'chat')
- *    - Fetches company name via getCompanyName() (cached)
- *    - Includes message text and user_id
- * 2. Feed Events (type: 'feed')
- *    - Alliance joins, route completions, etc.
- *    - Company name already in replacements object
- *
- * No Alliance Response:
- * - Returns { no_alliance: true, messages: [] } when user not in alliance
- * - Frontend can detect this and hide alliance features
- *
- * Response Format:
- * [
- *   {
- *     type: 'chat',
- *     company: 'ABC Shipping',
- *     message: 'Hello!',
- *     timestamp: 'Mon, 23 Oct 2025 14:30:00 GMT',
- *     user_id: 12345
- *   },
- *   {
- *     type: 'feed',
- *     feedType: 'alliance_member_joined',
- *     company: 'XYZ Corp',
- *     timestamp: 'Mon, 23 Oct 2025 14:25:00 GMT'
- *   }
- * ]
- *
- * Side Effects:
- * - Makes API call to /alliance/get-chat-feed
- * - May make multiple API calls to /user/get-company for uncached names
- *
- * @name GET /api/chat
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response with messages array
- */
-router.get('/chat', async (req, res) => {
-  if (!getAllianceId()) {
-    return res.json({ no_alliance: true, messages: [] });
-  }
 
-  try {
-    const feed = await getChatFeed();
-    const messages = [];
 
-    for (const msg of feed) {
-      if (msg.type === 'chat') {
-        const companyName = await getCompanyName(msg.user_id);
-        const timestamp = new Date(msg.time_created * 1000).toUTCString();
-        messages.push({
-          type: 'chat',
-          company: companyName,
-          message: msg.message,
-          timestamp: timestamp,
-          user_id: msg.user_id
-        });
-      } else if (msg.type === 'feed') {
-        const timestamp = new Date(msg.time_created * 1000).toUTCString();
-        messages.push({
-          type: 'feed',
-          feedType: msg.feed_type,
-          company: msg.replacements.company_name,
-          timestamp: timestamp
-        });
-      }
-    }
 
-    res.json(messages);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Autopilot Logbook Module - Display and manage autopilot action logs</p>
+<p>Provides transparency into all autopilot operations with SUCCESS/ERROR tracking.
+Features table view with filters, search, expand/collapse details, and export functionality.</p>
+<p>Key Features:</p>
+<ul>
+<li>Real-time log updates via WebSocket</li>
+<li>Filters: Status (All/Success/Warning/Error), Time Range (Today/Yesterday/48h/7days/lastweek/30days/lastmonth/All), Autopilot (dynamic list)</li>
+<li>Search: Full-text search across all fields including nested details</li>
+<li>Expand/collapse: Click rows to see detailed operation data, double-click details to collapse</li>
+<li>Export: Download logs as TXT, CSV, or JSON</li>
+<li>Smart auto-prepend: New entries appear at top without scrolling user</li>
+</ul></li></ul></dd>
+    
 
-/**
- * POST /api/send-message - Sends a message to alliance chat with validation and rate limiting.
- *
- * This endpoint receives a chat message from the frontend, validates and sanitizes it,
- * then forwards it to the game API. It's the primary workaround for the in-game chat bug
- * that causes page reloads with certain characters.
- *
- * Why This Endpoint:
- * - Bypasses in-game chat interface that has character bugs
- * - Provides input validation before hitting game API
- * - Sanitizes input to prevent XSS or injection attacks
- * - Rate limits to prevent spam (30 messages/minute)
- *
- * Validation Rules:
- * - Message must be string type
- * - Length: 1-1000 characters (game API limit)
- * - Trimmed of leading/trailing whitespace
- * - HTML entities unescaped (validator.unescape)
- *
- * Rate Limiting:
- * - Applied via messageLimiter middleware
- * - Limit: 30 requests per minute per IP
- * - Returns 429 Too Many Requests when exceeded
- * - Prevents spam and reduces ToS violation risk
- *
- * Sanitization:
- * - validator.trim() - Removes leading/trailing whitespace
- * - validator.unescape() - Converts HTML entities to characters
- * - Prevents empty messages after trimming
- *
- * No Alliance Handling:
- * - Returns 400 error if user not in alliance
- * - Prevents API call to /alliance/post-chat with null alliance_id
- *
- * Side Effects:
- * - Makes API call to /alliance/post-chat
- * - Message appears in alliance chat feed immediately
- * - WebSocket broadcast will include this message in next refresh cycle
- *
- * @name POST /api/send-message
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object with { message: string } body
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response { success: true } or error
- */
-router.post('/send-message', messageLimiter, express.json(), async (req, res) => {
-  if (!getAllianceId()) {
-    return res.status(400).json({ error: 'You are not in an alliance' });
-  }
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line1">line 1</a>
+    </li></ul></dd>
+    
 
-  const { message } = req.body;
+    
 
-  if (!message || typeof message !== 'string' || message.length === 0 || message.length > 1000) {
-    return res.status(400).json({ error: 'Invalid message length or content' });
-  }
+    
 
-  const sanitizedMessage = validator.trim(message);
+    
 
-  try {
-    await apiCall('/alliance/post-chat', 'POST', {
-      alliance_id: getAllianceId(),
-      text: validator.unescape(sanitizedMessage)
-    });
+    
 
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    
 
-/**
- * POST /api/company-name - Retrieves company name for a given user ID.
- *
- * This endpoint looks up a company name by user ID, leveraging the cached
- * getCompanyName() function to minimize API calls. Used by frontend for
- * displaying company names in various UI contexts.
- *
- * Why This Endpoint:
- * - Centralizes company name lookups
- * - Leverages server-side cache (reduces API calls)
- * - Provides fallback for failed lookups
- * - Validates user_id to prevent invalid API calls
- *
- * Validation:
- * - user_id must be positive integer
- * - Returns 400 error for invalid user_id
- *
- * Caching:
- * - getCompanyName() uses Map-based cache
- * - Cache persists for server lifetime
- * - Significant performance improvement for repeated lookups
- *
- * Fallback:
- * - Returns "User {userId}" if lookup fails
- * - Never throws error to frontend
- *
- * Side Effects:
- * - May make API call to /user/get-company on cache miss
- * - Stores result in userNameCache
- *
- * @name POST /api/company-name
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object with { user_id: number } body
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response { company_name: string }
- */
-router.post('/company-name', express.json(), async (req, res) => {
-  const { user_id } = req.body;
-  if (!Number.isInteger(user_id) || user_id &lt;= 0) {
-    return res.status(400).json({ error: 'Invalid user ID' });
-  }
+    
 
-  try {
-    const companyName = await getCompanyName(user_id);
-    res.json({ company_name: companyName });
-  } catch (error) {
-    res.status(500).json({ error: 'Could not load company name' });
-  }
-});
+    
 
-/**
- * GET /api/alliance-members - Retrieves list of all alliance members.
- *
- * This endpoint fetches the complete alliance member roster from the game API
- * and returns it as a simplified array of user_id and company_name pairs.
- *
- * Why This Endpoint:
- * - Provides member list for UI features (member directory, mentions, etc.)
- * - Simplifies game API response (returns only needed fields)
- * - Gracefully handles users not in alliance
- *
- * No Alliance Handling:
- * - Returns empty array [] when user not in alliance
- * - Prevents 404 errors from game API
- *
- * Response Format:
- * [
- *   { user_id: 12345, company_name: "ABC Shipping" },
- *   { user_id: 67890, company_name: "XYZ Corp" }
- * ]
- *
- * Side Effects:
- * - Makes API call to /alliance/get-alliance-members
- *
- * @name GET /api/alliance-members
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response with members array
- */
-router.get('/alliance-members', async (req, res) => {
-  if (!getAllianceId()) {
-    return res.json([]);
-  }
+    
 
-  try {
-    const data = await apiCall('/alliance/get-alliance-members', 'POST', {});
-    const members = data.data.members.map(member => ({
-      user_id: member.user_id,
-      company_name: member.company_name
-    }));
-    res.json(members);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    
 
-module.exports = router;
-</code></pre>
-        </article>
-    </section>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            
+        
+        </div>
+    
+
+    
+
+    
+        <h3 class="subsection-title">Requires</h3>
+
+        <ul>
+            <li><a href="module-utils.html">module:utils</a></li>
+        
+            <li><a href="module-api.html">module:api</a></li>
+        </ul>
+    
+
+    
+    
+    
+
+     
+
+    
+
+    
+        <h3 class="subsection-title">Members</h3>
+
+        
+            
+<h4 class="name" id="~currentFilters"><span class="type-signature type-signature-inner">(inner) </span>currentFilters<span class="type-signature"> :Object</span></h4>
+
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Current filter state</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line28">line 28</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+<div class="description usertext">
+    <p>Current filter state</p>
+</div>
+
+
+
+    <h5 class="h5-types">Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">Object</span>
+
+
+
+        </li>
+    </ul>
+
+
+
+
+
+
+        
+            
+<h4 class="name" id="~expandedEntries"><span class="type-signature type-signature-inner, constant">(inner, constant) </span>expandedEntries<span class="type-signature"> :Set.&lt;string></span></h4>
+
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Set of expanded entry IDs</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line45">line 45</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+<div class="description usertext">
+    <p>Set of expanded entry IDs</p>
+</div>
+
+
+
+    <h5 class="h5-types">Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">Set.&lt;string></span>
+
+
+
+        </li>
+    </ul>
+
+
+
+
+
+
+        
+            
+<h4 class="name" id="~logEntries"><span class="type-signature type-signature-inner">(inner) </span>logEntries<span class="type-signature"> :Array</span></h4>
+
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>All loaded log entries</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line39">line 39</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+<div class="description usertext">
+    <p>All loaded log entries</p>
+</div>
+
+
+
+    <h5 class="h5-types">Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">Array</span>
+
+
+
+        </li>
+    </ul>
+
+
+
+
+
+
+        
+    
+
+    
+        <h3 class="subsection-title">Methods</h3>
+
+        
+            
+
+    
+
+    <h4 class="name" id=".deleteAllLogsConfirmed"><span class="type-signature type-signature-static">(static) </span>deleteAllLogsConfirmed<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Deletes all logs for the current user
+Called from settings module</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line466">line 466</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id=".getLogFileSize"><span class="type-signature type-signature-static">(static) </span>getLogFileSize<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Fetches and returns current log file size
+Called from settings module</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line496">line 496</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id=".initLogbook"><span class="type-signature type-signature-static">(static) </span>initLogbook<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Initializes the logbook module
+Sets up event listeners and loads initial data</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line51">line 51</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id=".prependLogEntry"><span class="type-signature type-signature-static">(static) </span>prependLogEntry<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Prepends a new log entry to the table (called via WebSocket)
+Uses smart loading to preserve user's scroll position</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line438">line 438</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~exportLogs"><span class="type-signature type-signature-async, inner">(async, inner) </span>exportLogs<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Exports logs in specified format</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line398">line 398</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~formatDetails"><span class="type-signature type-signature-inner">(inner) </span>formatDetails<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Formats details object as nested HTML</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line318">line 318</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~formatTimestamp"><span class="type-signature type-signature-inner">(inner) </span>formatTimestamp<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Formats timestamp for display</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line383">line 383</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~loadLogs"><span class="type-signature type-signature-async, inner">(async, inner) </span>loadLogs<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Loads log entries from server with current filters</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line142">line 142</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~renderDetailsRow"><span class="type-signature type-signature-inner">(inner) </span>renderDetailsRow<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Renders the details row for an expanded entry</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line300">line 300</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~renderLogTable"><span class="type-signature type-signature-inner">(inner) </span>renderLogTable<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Renders the log table with current entries</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line232">line 232</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~searchInObject"><span class="type-signature type-signature-inner">(inner) </span>searchInObject<span class="signature">(obj, searchTerm)</span><span class="type-signature"> &rarr; {boolean}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Recursively searches through an object for a search term</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line201">line 201</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>obj</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">*</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>Object to search through</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>searchTerm</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">string</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>Term to search for (case-insensitive)</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <ul>
+<li>True if term found anywhere in object</li>
+</ul>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">boolean</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~toggleExpanded"><span class="type-signature type-signature-inner">(inner) </span>toggleExpanded<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Toggles expanded state for an entry</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line371">line 371</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="~updateAutopilotFilter"><span class="type-signature type-signature-inner">(inner) </span>updateAutopilotFilter<span class="signature">()</span><span class="type-signature"></span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>Updates autopilot filter dropdown with unique autopilot names from logs</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="public_js_modules_logbook.js.html">public/js/modules/logbook.js</a>, <a href="public_js_modules_logbook.js.html#line167">line 167</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+    
+
+    
+
+    
+</article>
+
+</section>
 
 
 

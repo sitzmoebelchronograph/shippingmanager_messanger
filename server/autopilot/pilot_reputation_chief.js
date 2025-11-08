@@ -12,6 +12,7 @@ const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
 const config = require('../config');
+const { logAutopilotAction } = require('../logbook');
 
 const DEBUG_MODE = config.DEBUG_MODE;
 
@@ -115,12 +116,40 @@ async function autoCampaignRenewal(campaignData = null, autopilotPaused, broadca
         logger.error('[Auto-Campaign] broadcastToUser is NULL, cannot send notification!');
       }
 
+      // Calculate total cost
+      const totalCost = renewed.reduce((sum, r) => sum + r.price, 0);
+
+      // Log to autopilot logbook
+      await logAutopilotAction(
+        userId,
+        'Auto-Campaign',
+        'SUCCESS',
+        `${renewed.length} campaign${renewed.length > 1 ? 's' : ''} | -$${totalCost.toLocaleString()}`,
+        {
+          campaignCount: renewed.length,
+          totalCost,
+          renewedCampaigns: renewed
+        }
+      );
+
       // Update all data to refresh campaign badge and cash/points
       await tryUpdateAllData();
     }
 
   } catch (error) {
     logger.error('[Auto-Campaign] Error:', error.message);
+
+    // Log error to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Campaign',
+      'ERROR',
+      `Campaign renewal failed: ${error.message}`,
+      {
+        error: error.message,
+        stack: error.stack
+      }
+    );
   }
 }
 

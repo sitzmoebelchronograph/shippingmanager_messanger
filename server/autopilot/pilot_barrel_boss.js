@@ -12,6 +12,7 @@ const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
 const config = require('../config');
+const { logAutopilotAction } = require('../logbook');
 
 const DEBUG_MODE = config.DEBUG_MODE;
 
@@ -175,8 +176,34 @@ async function autoRebuyFuel(bunkerState = null, autopilotPaused, broadcastToUse
 
     logger.log(`[Auto-Rebuy Fuel] Purchased ${amountToBuy}t @ $${prices.fuel}/t (New total: ${result.newTotal.toFixed(1)}t)`);
 
+    // Log to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Fuel',
+      'SUCCESS',
+      `${amountToBuy}t @ $${prices.fuel}/t | -$${result.cost.toLocaleString()}`,
+      {
+        amount: amountToBuy,
+        price: prices.fuel,
+        totalCost: result.cost,
+        newTotal: result.newTotal
+      }
+    );
+
   } catch (error) {
     logger.error('[Auto-Rebuy Fuel] Error:', error.message);
+
+    // Log error to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Fuel',
+      'ERROR',
+      `Purchase failed: ${error.message}`,
+      {
+        error: error.message,
+        stack: error.stack
+      }
+    );
   }
 }
 

@@ -11,6 +11,7 @@ const cache = require('../cache');
 const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
+const { logAutopilotAction } = require('../logbook');
 
 /**
  * Automatically sends available COOP vessels to alliance members.
@@ -161,6 +162,22 @@ async function autoCoop(autopilotPaused, broadcastToUser, tryUpdateAllData) {
       });
     }
 
+    // Log to autopilot logbook
+    if (totalSent > 0) {
+      await logAutopilotAction(
+        userId,
+        'Auto-COOP',
+        'SUCCESS',
+        `${totalSent} vessels | ${results.length} members`,
+        {
+          totalVessels: totalSent,
+          totalRequested,
+          recipientCount: results.length,
+          distributions: results
+        }
+      );
+    }
+
     // Invalidate COOP cache since we changed the available count
     if (totalSent > 0) {
       cache.invalidateCoopCache();
@@ -168,6 +185,18 @@ async function autoCoop(autopilotPaused, broadcastToUser, tryUpdateAllData) {
     }
 
   } catch (error) {
+    // Log error to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-COOP',
+      'ERROR',
+      `COOP distribution failed: ${error.message}`,
+      {
+        error: error.message,
+        stack: error.stack
+      }
+    );
+
     // AggregateError contains multiple errors in .errors array
     if (error.errors && Array.isArray(error.errors)) {
       logger.error('[Auto-COOP] Error during auto-COOP (AggregateError with multiple errors):');

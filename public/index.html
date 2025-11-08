@@ -158,6 +158,9 @@
                 <button id="forecastBtn" class="action-btn" title="Forecast Calendar">
                     📅
                 </button>
+                <button id="logbookBtn" class="action-btn" title="Autopilot Logbook">
+                    📋
+                </button>
                 <button id="docsBtn" class="action-btn" title="Documentation">
                     📖
                 </button>
@@ -203,6 +206,79 @@
                 <button id="closeContactListBtn" class="close-btn" onmouseover="this.querySelector('span').style.animation='pulse-arrow 0.6s ease-in-out infinite'" onmouseout="this.querySelector('span').style.animation='none'"><span style="display: inline-block;">×</span></button>
             </div>
             <div class="messenger-feed" id="contactListFeed">
+            </div>
+        </div>
+    </div>
+
+    <div id="logbookOverlay" class="overlay hidden">
+        <div class="messenger-window">
+            <div class="messenger-header">
+                <h2>📋 Autopilot Logbook</h2>
+                <span id="logbookCount" class="logbook-count"></span>
+                <button id="logbookCloseBtn" class="close-btn" style="margin-left: auto;" onmouseover="this.querySelector('span').style.animation='pulse-arrow 0.6s ease-in-out infinite'" onmouseout="this.querySelector('span').style.animation='none'"><span style="display: inline-block;">×</span></button>
+            </div>
+            <div class="logbook-filters">
+                <div class="logbook-filter-row">
+                    <div class="logbook-filter-group">
+                        <label for="logbookFilterStatus">Status:</label>
+                        <select id="logbookFilterStatus" class="logbook-filter-select">
+                            <option value="ALL">All</option>
+                            <option value="SUCCESS">Success</option>
+                            <option value="WARNING">Warning</option>
+                            <option value="ERROR">Error</option>
+                        </select>
+                    </div>
+                    <div class="logbook-filter-group">
+                        <label for="logbookFilterTime">Time:</label>
+                        <select id="logbookFilterTime" class="logbook-filter-select">
+                            <option value="all">All Time</option>
+                            <option value="today">Today</option>
+                            <option value="yesterday">Yesterday</option>
+                            <option value="48h">Last 48 Hours</option>
+                            <option value="7days">Last 7 Days</option>
+                            <option value="lastweek">Last Week</option>
+                            <option value="30days">Last 30 Days</option>
+                            <option value="lastmonth">Last Month</option>
+                        </select>
+                    </div>
+                    <div class="logbook-filter-group">
+                        <label for="logbookFilterAutopilot">Autopilot:</label>
+                        <select id="logbookFilterAutopilot" class="logbook-filter-select">
+                            <option value="ALL">All</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="logbook-filter-row">
+                    <input type="text" id="logbookFilterSearch" class="logbook-filter-search" placeholder="Search...">
+                    <div class="logbook-filter-group logbook-export-group">
+                        <div class="logbook-export-dropdown">
+                            <button id="logbookExportBtn" class="logbook-icon-btn" title="Export logs">💾</button>
+                            <div id="logbookExportMenu" class="logbook-export-menu hidden">
+                                <button id="logbookExportTxt" class="logbook-export-menu-item">📄 TXT</button>
+                                <button id="logbookExportCsv" class="logbook-export-menu-item">📊 CSV</button>
+                                <button id="logbookExportJson" class="logbook-export-menu-item">🗂️ JSON</button>
+                            </div>
+                        </div>
+                        <button id="deleteLogbookBtn" class="logbook-icon-btn logbook-delete-btn" title="Delete all logs">🗑️</button>
+                    </div>
+                </div>
+            </div>
+            <div class="logbook-table-container">
+                <table class="logbook-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Autopilot</th>
+                            <th>Status</th>
+                            <th>Summary</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logbookTableBody">
+                        <tr>
+                            <td colspan="4" class="logbook-empty">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

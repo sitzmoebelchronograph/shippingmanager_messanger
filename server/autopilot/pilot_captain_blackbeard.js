@@ -13,6 +13,7 @@ const { getUserId, apiCall } = require('../utils/api');
 const config = require('../config');
 const path = require('path');
 const fs = require('fs');
+const { logAutopilotAction } = require('../logbook');
 
 const DEBUG_MODE = config.DEBUG_MODE;
 
@@ -158,6 +159,7 @@ async function processHijackingCase(userId, caseId, vesselName, threshold, offer
   logger.debug(`[Auto-Negotiate Hijacking] Processing case ${caseId}...`);
 
   let negotiationRound = 0;
+  let initialDemand = null;
   const MAX_ROUNDS = 50;
 
   while (negotiationRound < MAX_ROUNDS) {
@@ -173,6 +175,11 @@ async function processHijackingCase(userId, caseId, vesselName, threshold, offer
     const status = caseData.status;
 
     logger.debug(`[Auto-Negotiate Hijacking] Case ${caseId} Round ${negotiationRound}: Status="${status}", Price=$${requestedAmount}`);
+
+    // Capture initial demand on first round
+    if (negotiationRound === 1) {
+      initialDemand = requestedAmount;
+    }
 
     // Save initial pirate demand to history
     if (negotiationRound === 1) {
@@ -371,6 +378,23 @@ async function processHijackingCase(userId, caseId, vesselName, threshold, offer
             }
           });
         }
+
+        // Log to autopilot logbook
+        await logAutopilotAction(
+          userId,
+          'Auto-Blackbeard',
+          'SUCCESS',
+          `${vesselName} | $${requestedAmount.toLocaleString()}`,
+          {
+            caseId,
+            vesselName,
+            initialDemand: initialDemand || requestedAmount,
+            finalPayment: requestedAmount,
+            negotiationRounds: negotiationRound,
+            verified: paymentResult.verified,
+            verificationStatus: paymentResult.verification_status
+          }
+        );
       } else {
         logger.debug(`[Auto-Negotiate Hijacking] Case ${caseId}: Failed to accept ransom`);
       }
@@ -543,6 +567,20 @@ async function autoNegotiateHijacking(autopilotPaused, broadcastToUser, tryUpdat
       } catch (error) {
         logger.error(`[Auto-Negotiate Hijacking] Error processing case ${caseId}:`, error.message);
 
+        // Log error to autopilot logbook
+        await logAutopilotAction(
+          userId,
+          'Auto-Blackbeard',
+          'ERROR',
+          `Negotiation failed for ${vesselName}: ${error.message}`,
+          {
+            caseId,
+            vesselName,
+            error: error.message,
+            stack: error.stack
+          }
+        );
+
         if (broadcastToUser) {
           broadcastToUser(userId, 'hijacking_update', {
             action: 'negotiation_failed',
@@ -558,6 +596,18 @@ async function autoNegotiateHijacking(autopilotPaused, broadcastToUser, tryUpdat
 
   } catch (error) {
     logger.error('[Auto-Negotiate Hijacking] Error:', error.message);
+
+    // Log error to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Blackbeard',
+      'ERROR',
+      `Operation failed: ${error.message}`,
+      {
+        error: error.message,
+        stack: error.stack
+      }
+    );
   }
 }
 

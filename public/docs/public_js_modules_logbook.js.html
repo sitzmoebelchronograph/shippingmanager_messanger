@@ -3,7 +3,7 @@
 <head>
     
     <meta charset="utf-8">
-    <title>server/routes/alliance.js - Documentation</title>
+    <title>public/js/modules/logbook.js - Documentation</title>
     
     
     <script src="scripts/prettify/prettify.js"></script>
@@ -276,7 +276,7 @@
 
 <div id="main">
     
-    <h1 class="page-title">server/routes/alliance.js</h1>
+    <h1 class="page-title">public/js/modules/logbook.js</h1>
     
 
     
@@ -287,313 +287,512 @@
     <section>
         <article>
             <pre class="prettyprint source linenums"><code>/**
- * @fileoverview Alliance Chat API Routes
+ * @fileoverview Autopilot Logbook Module - Display and manage autopilot action logs
  *
- * This module defines HTTP endpoints for alliance chat functionality, including
- * fetching the chat feed, sending messages, and retrieving alliance member information.
- * It acts as a proxy between the frontend and the Shipping Manager game API.
+ * Provides transparency into all autopilot operations with SUCCESS/ERROR tracking.
+ * Features table view with filters, search, expand/collapse details, and export functionality.
  *
  * Key Features:
- * - Chat feed retrieval with message transformation (API format → client format)
- * - Message sending with validation and rate limiting
- * - Company name lookup by user ID (used for chat rendering)
- * - Alliance member list retrieval
- * - Graceful handling of users not in alliance (no_alliance flag)
+ * - Real-time log updates via WebSocket
+ * - Filters: Status (All/Success/Warning/Error), Time Range (Today/Yesterday/48h/7days/lastweek/30days/lastmonth/All), Autopilot (dynamic list)
+ * - Search: Full-text search across all fields including nested details
+ * - Expand/collapse: Click rows to see detailed operation data, double-click details to collapse
+ * - Export: Download logs as TXT, CSV, or JSON
+ * - Smart auto-prepend: New entries appear at top without scrolling user
  *
- * Why This Exists:
- * - Centralizes alliance-related endpoints
- * - Abstracts game API details from frontend
- * - Provides input validation and sanitization
- * - Implements rate limiting on message sending
- * - Transforms timestamps and enriches data with company names
- *
- * Security Considerations:
- * - Message length validation (0-1000 characters)
- * - Input sanitization via validator.trim() and validator.unescape()
- * - Rate limiting: 30 messages per minute (messageLimiter)
- * - User ID validation (must be positive integer)
- * - Authentication inherited from apiCall() session cookie
- *
- * No Alliance Handling:
- * - All endpoints check getAllianceId() before proceeding
- * - Returns appropriate response when user not in alliance
- * - Prevents 404 errors from game API alliance endpoints
- *
- * @requires express - Router and middleware
- * @requires validator - Input validation and sanitization
- * @requires ../utils/api - API helper functions (apiCall, getCompanyName, etc.)
- * @requires ../middleware - Rate limiting middleware
- * @module server/routes/alliance
+ * @module logbook
+ * @requires utils - HTML escaping and notification functions
+ * @requires api - Logbook API calls
  */
 
-const express = require('express');
-const validator = require('validator');
-const { apiCall, getCompanyName, getChatFeed, getAllianceId } = require('../utils/api');
-const { messageLimiter } = require('../middleware');
-
-const router = express.Router();
+import { escapeHtml, showNotification } from './utils.js';
+import { fetchLogbookEntries, downloadLogbookExport, deleteAllLogs, fetchLogbookFileSize } from './api.js';
+import { showConfirmDialog } from './ui-dialogs.js';
 
 /**
- * GET /api/chat - Retrieves alliance chat feed with enriched message data.
- *
- * This endpoint fetches the alliance chat feed from the game API, transforms
- * the raw feed data into a client-friendly format with company names and
- * formatted timestamps, and returns it as JSON.
- *
- * Why This Transformation:
- * - API returns user_id, but frontend needs company name for display
- * - Timestamps converted from Unix epoch to UTC string for readability
- * - Separates 'chat' messages from 'feed' events for different UI rendering
- * - Company names cached to reduce API calls
- *
- * Message Types:
- * 1. Chat Messages (type: 'chat')
- *    - Fetches company name via getCompanyName() (cached)
- *    - Includes message text and user_id
- * 2. Feed Events (type: 'feed')
- *    - Alliance joins, route completions, etc.
- *    - Company name already in replacements object
- *
- * No Alliance Response:
- * - Returns { no_alliance: true, messages: [] } when user not in alliance
- * - Frontend can detect this and hide alliance features
- *
- * Response Format:
- * [
- *   {
- *     type: 'chat',
- *     company: 'ABC Shipping',
- *     message: 'Hello!',
- *     timestamp: 'Mon, 23 Oct 2025 14:30:00 GMT',
- *     user_id: 12345
- *   },
- *   {
- *     type: 'feed',
- *     feedType: 'alliance_member_joined',
- *     company: 'XYZ Corp',
- *     timestamp: 'Mon, 23 Oct 2025 14:25:00 GMT'
- *   }
- * ]
- *
- * Side Effects:
- * - Makes API call to /alliance/get-chat-feed
- * - May make multiple API calls to /user/get-company for uncached names
- *
- * @name GET /api/chat
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response with messages array
+ * Current filter state
+ * @type {Object}
  */
-router.get('/chat', async (req, res) => {
-  if (!getAllianceId()) {
-    return res.json({ no_alliance: true, messages: [] });
+let currentFilters = {
+  status: 'ALL',
+  timeRange: 'all',
+  autopilot: 'ALL',
+  search: ''
+};
+
+/**
+ * All loaded log entries
+ * @type {Array}
+ */
+let logEntries = [];
+
+/**
+ * Set of expanded entry IDs
+ * @type {Set&lt;string>}
+ */
+const expandedEntries = new Set();
+
+/**
+ * Initializes the logbook module
+ * Sets up event listeners and loads initial data
+ */
+export function initLogbook() {
+  const logbookBtn = document.getElementById('logbookBtn');
+  const logbookOverlay = document.getElementById('logbookOverlay');
+  const logbookCloseBtn = document.getElementById('logbookCloseBtn');
+  const logbookFilterStatus = document.getElementById('logbookFilterStatus');
+  const logbookFilterTime = document.getElementById('logbookFilterTime');
+  const logbookFilterAutopilot = document.getElementById('logbookFilterAutopilot');
+  const logbookFilterSearch = document.getElementById('logbookFilterSearch');
+  const logbookExportBtn = document.getElementById('logbookExportBtn');
+  const logbookExportMenu = document.getElementById('logbookExportMenu');
+  const logbookExportTxt = document.getElementById('logbookExportTxt');
+  const logbookExportCsv = document.getElementById('logbookExportCsv');
+  const logbookExportJson = document.getElementById('logbookExportJson');
+
+  if (!logbookBtn || !logbookOverlay) {
+    console.warn('[Logbook] UI elements not found');
+    return;
   }
 
-  try {
-    const feed = await getChatFeed();
-    const messages = [];
+  // Open logbook
+  logbookBtn.addEventListener('click', async () => {
+    logbookOverlay.classList.remove('hidden');
+    await loadLogs();
+  });
 
-    for (const msg of feed) {
-      if (msg.type === 'chat') {
-        const companyName = await getCompanyName(msg.user_id);
-        const timestamp = new Date(msg.time_created * 1000).toUTCString();
-        messages.push({
-          type: 'chat',
-          company: companyName,
-          message: msg.message,
-          timestamp: timestamp,
-          user_id: msg.user_id
-        });
-      } else if (msg.type === 'feed') {
-        const timestamp = new Date(msg.time_created * 1000).toUTCString();
-        messages.push({
-          type: 'feed',
-          feedType: msg.feed_type,
-          company: msg.replacements.company_name,
-          timestamp: timestamp
-        });
+  // Close logbook
+  logbookCloseBtn.addEventListener('click', () => {
+    logbookOverlay.classList.add('hidden');
+  });
+
+  // Toggle export menu
+  logbookExportBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    logbookExportMenu.classList.toggle('hidden');
+  });
+
+  // Close export menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!logbookExportMenu.classList.contains('hidden') &amp;&amp; !logbookExportBtn.contains(e.target)) {
+      logbookExportMenu.classList.add('hidden');
+    }
+  });
+
+  // Filter: Status
+  logbookFilterStatus.addEventListener('change', async (e) => {
+    currentFilters.status = e.target.value;
+    await loadLogs();
+  });
+
+  // Filter: Time Range
+  logbookFilterTime.addEventListener('change', async (e) => {
+    currentFilters.timeRange = e.target.value;
+    await loadLogs();
+  });
+
+  // Filter: Autopilot
+  logbookFilterAutopilot.addEventListener('change', async (e) => {
+    currentFilters.autopilot = e.target.value;
+    await loadLogs();
+  });
+
+  // Filter: Search (debounced)
+  let searchTimeout;
+  logbookFilterSearch.addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(async () => {
+      currentFilters.search = e.target.value;
+      await loadLogs();
+    }, 300);
+  });
+
+  // Export buttons
+  logbookExportTxt.addEventListener('click', () => {
+    exportLogs('txt');
+    logbookExportMenu.classList.add('hidden');
+  });
+  logbookExportCsv.addEventListener('click', () => {
+    exportLogs('csv');
+    logbookExportMenu.classList.add('hidden');
+  });
+  logbookExportJson.addEventListener('click', () => {
+    exportLogs('json');
+    logbookExportMenu.classList.add('hidden');
+  });
+
+  console.log('[Logbook] Module initialized');
+}
+
+/**
+ * Loads log entries from server with current filters
+ */
+async function loadLogs() {
+  try {
+    const data = await fetchLogbookEntries(currentFilters);
+
+    if (data.success) {
+      logEntries = data.logs || [];
+      renderLogTable();
+
+      // Update count display
+      const countEl = document.getElementById('logbookCount');
+      if (countEl) {
+        countEl.textContent = `${logEntries.length} entries`;
       }
+    } else {
+      showNotification('Failed to load logs', 'error');
+    }
+  } catch (error) {
+    console.error('[Logbook] Failed to load logs:', error);
+    showNotification('Failed to load logs', 'error');
+  }
+}
+
+/**
+ * Updates autopilot filter dropdown with unique autopilot names from logs
+ */
+function updateAutopilotFilter() {
+  const autopilotSelect = document.getElementById('logbookFilterAutopilot');
+  if (!autopilotSelect) return;
+
+  // Get unique autopilot names from all entries
+  const uniqueAutopilots = [...new Set(logEntries.map(e => e.autopilot))].sort();
+
+  // Store current selection
+  const currentValue = autopilotSelect.value;
+
+  // Rebuild options
+  autopilotSelect.innerHTML = '&lt;option value="ALL">All&lt;/option>';
+  uniqueAutopilots.forEach(autopilot => {
+    const option = document.createElement('option');
+    option.value = autopilot;
+    option.textContent = autopilot;
+    autopilotSelect.appendChild(option);
+  });
+
+  // Restore selection if still valid
+  if (uniqueAutopilots.includes(currentValue)) {
+    autopilotSelect.value = currentValue;
+  } else if (currentValue !== 'ALL') {
+    autopilotSelect.value = 'ALL';
+    currentFilters.autopilot = 'ALL';
+  }
+}
+
+/**
+ * Recursively searches through an object for a search term
+ * @param {*} obj - Object to search through
+ * @param {string} searchTerm - Term to search for (case-insensitive)
+ * @returns {boolean} - True if term found anywhere in object
+ */
+function searchInObject(obj, searchTerm) {
+  if (!searchTerm) return true;
+
+  const lowerSearch = searchTerm.toLowerCase();
+
+  // Handle primitive types
+  if (obj === null || obj === undefined) {
+    return false;
+  }
+  if (typeof obj !== 'object') {
+    return String(obj).toLowerCase().includes(lowerSearch);
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.some(item => searchInObject(item, searchTerm));
+  }
+
+  // Handle objects
+  for (const value of Object.values(obj)) {
+    if (searchInObject(value, searchTerm)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Renders the log table with current entries
+ */
+function renderLogTable() {
+  const tbody = document.getElementById('logbookTableBody');
+  if (!tbody) return;
+
+  // Update autopilot filter dropdown with unique autopilot names
+  updateAutopilotFilter();
+
+  if (logEntries.length === 0) {
+    tbody.innerHTML = `
+      &lt;tr>
+        &lt;td colspan="4" class="logbook-empty">
+          No log entries found. Autopilot actions will appear here.
+        &lt;/td>
+      &lt;/tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = logEntries.map(entry => {
+    const isExpanded = expandedEntries.has(entry.id);
+    let statusIcon, statusClass;
+    if (entry.status === 'SUCCESS') {
+      statusIcon = '✅';
+      statusClass = 'logbook-success';
+    } else if (entry.status === 'WARNING') {
+      statusIcon = '⚠️';
+      statusClass = 'logbook-warning';
+    } else {
+      statusIcon = '❌';
+      statusClass = 'logbook-error';
+    }
+    const date = new Date(entry.timestamp);
+
+    return `
+      &lt;tr class="logbook-row ${isExpanded ? 'expanded' : ''}" data-id="${entry.id}">
+        &lt;td class="logbook-timestamp">${formatTimestamp(date)}&lt;/td>
+        &lt;td class="logbook-autopilot">${escapeHtml(entry.autopilot)}&lt;/td>
+        &lt;td class="logbook-status ${statusClass}">${statusIcon} ${entry.status}&lt;/td>
+        &lt;td class="logbook-summary">${escapeHtml(entry.summary)}&lt;/td>
+      &lt;/tr>
+      ${isExpanded ? renderDetailsRow(entry) : ''}
+    `;
+  }).join('');
+
+  // Add click listeners to rows
+  tbody.querySelectorAll('.logbook-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const entryId = row.dataset.id;
+      toggleExpanded(entryId);
+    });
+  });
+
+  // Add double-click listeners to details rows to collapse
+  tbody.querySelectorAll('.logbook-details-row').forEach(detailsRow => {
+    detailsRow.addEventListener('dblclick', () => {
+      // Find the previous row (the main logbook-row) to get the entry ID
+      const mainRow = detailsRow.previousElementSibling;
+      if (mainRow &amp;&amp; mainRow.classList.contains('logbook-row')) {
+        const entryId = mainRow.dataset.id;
+        toggleExpanded(entryId);
+      }
+    });
+  });
+}
+
+/**
+ * Renders the details row for an expanded entry
+ */
+function renderDetailsRow(entry) {
+  const detailsHtml = formatDetails(entry.details);
+
+  return `
+    &lt;tr class="logbook-details-row">
+      &lt;td colspan="4">
+        &lt;div class="logbook-details">
+          &lt;h4>Details&lt;/h4>
+          ${detailsHtml}
+        &lt;/div>
+      &lt;/td>
+    &lt;/tr>
+  `;
+}
+
+/**
+ * Formats details object as nested HTML
+ */
+function formatDetails(obj, level = 0) {
+  if (!obj || typeof obj !== 'object') {
+    return `&lt;div class="logbook-detail-value">${escapeHtml(String(obj))}&lt;/div>`;
+  }
+
+  const indent = level * 20;
+  let html = '&lt;div class="logbook-detail-object">';
+
+  for (const [key, value] of Object.entries(obj)) {
+    html += `&lt;div class="logbook-detail-row" style="margin-left: ${indent}px;">`;
+    html += `&lt;span class="logbook-detail-key">${escapeHtml(key)}:&lt;/span> `;
+
+    if (value === null || value === undefined) {
+      html += `&lt;span class="logbook-detail-value logbook-detail-null">null&lt;/span>`;
+    } else if (typeof value === 'object' &amp;&amp; !Array.isArray(value)) {
+      html += formatDetails(value, level + 1);
+    } else if (Array.isArray(value)) {
+      html += `&lt;span class="logbook-detail-array">[${value.length} items]&lt;/span>`;
+      if (value.length > 0) {
+        html += '&lt;div class="logbook-detail-array-items">';
+        value.forEach((item, index) => {
+          html += `&lt;div class="logbook-detail-row" style="margin-left: ${indent + 20}px;">`;
+          html += `&lt;span class="logbook-detail-key">[${index}]:&lt;/span> `;
+          if (typeof item === 'object') {
+            html += formatDetails(item, level + 2);
+          } else {
+            html += `&lt;span class="logbook-detail-value">${escapeHtml(String(item))}&lt;/span>`;
+          }
+          html += '&lt;/div>';
+        });
+        html += '&lt;/div>';
+      }
+    } else if (typeof value === 'boolean') {
+      html += `&lt;span class="logbook-detail-boolean">${value}&lt;/span>`;
+    } else if (typeof value === 'number') {
+      // Only format as currency for money-related fields
+      const isCurrency = /cost|price|income|fee|revenue|cash|payment/i.test(key);
+      const formatted = isCurrency ? value.toLocaleString() : value;
+      html += `&lt;span class="logbook-detail-number">${formatted}&lt;/span>`;
+    } else {
+      html += `&lt;span class="logbook-detail-value">${escapeHtml(String(value))}&lt;/span>`;
     }
 
-    res.json(messages);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    html += '&lt;/div>';
   }
-});
+
+  html += '&lt;/div>';
+  return html;
+}
 
 /**
- * POST /api/send-message - Sends a message to alliance chat with validation and rate limiting.
- *
- * This endpoint receives a chat message from the frontend, validates and sanitizes it,
- * then forwards it to the game API. It's the primary workaround for the in-game chat bug
- * that causes page reloads with certain characters.
- *
- * Why This Endpoint:
- * - Bypasses in-game chat interface that has character bugs
- * - Provides input validation before hitting game API
- * - Sanitizes input to prevent XSS or injection attacks
- * - Rate limits to prevent spam (30 messages/minute)
- *
- * Validation Rules:
- * - Message must be string type
- * - Length: 1-1000 characters (game API limit)
- * - Trimmed of leading/trailing whitespace
- * - HTML entities unescaped (validator.unescape)
- *
- * Rate Limiting:
- * - Applied via messageLimiter middleware
- * - Limit: 30 requests per minute per IP
- * - Returns 429 Too Many Requests when exceeded
- * - Prevents spam and reduces ToS violation risk
- *
- * Sanitization:
- * - validator.trim() - Removes leading/trailing whitespace
- * - validator.unescape() - Converts HTML entities to characters
- * - Prevents empty messages after trimming
- *
- * No Alliance Handling:
- * - Returns 400 error if user not in alliance
- * - Prevents API call to /alliance/post-chat with null alliance_id
- *
- * Side Effects:
- * - Makes API call to /alliance/post-chat
- * - Message appears in alliance chat feed immediately
- * - WebSocket broadcast will include this message in next refresh cycle
- *
- * @name POST /api/send-message
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object with { message: string } body
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response { success: true } or error
+ * Toggles expanded state for an entry
  */
-router.post('/send-message', messageLimiter, express.json(), async (req, res) => {
-  if (!getAllianceId()) {
-    return res.status(400).json({ error: 'You are not in an alliance' });
+function toggleExpanded(entryId) {
+  if (expandedEntries.has(entryId)) {
+    expandedEntries.delete(entryId);
+  } else {
+    expandedEntries.add(entryId);
   }
+  renderLogTable();
+}
 
-  const { message } = req.body;
+/**
+ * Formats timestamp for display
+ */
+function formatTimestamp(date) {
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+}
 
-  if (!message || typeof message !== 'string' || message.length === 0 || message.length > 1000) {
-    return res.status(400).json({ error: 'Invalid message length or content' });
-  }
-
-  const sanitizedMessage = validator.trim(message);
-
+/**
+ * Exports logs in specified format
+ */
+async function exportLogs(format) {
   try {
-    await apiCall('/alliance/post-chat', 'POST', {
-      alliance_id: getAllianceId(),
-      text: validator.unescape(sanitizedMessage)
+    const data = await downloadLogbookExport(format, currentFilters);
+
+    // Create blob and download
+    let blob;
+    let filename;
+
+    if (format === 'json') {
+      blob = new Blob([data], { type: 'application/json' });
+      filename = `autopilot-log-${Date.now()}.json`;
+    } else if (format === 'csv') {
+      blob = new Blob([data], { type: 'text/csv' });
+      filename = `autopilot-log-${Date.now()}.csv`;
+    } else if (format === 'txt') {
+      blob = new Blob([data], { type: 'text/plain' });
+      filename = `autopilot-log-${Date.now()}.txt`;
+    }
+
+    // Trigger download
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showNotification(`Exported ${logEntries.length} entries as ${format.toUpperCase()}`, 'success');
+  } catch (error) {
+    console.error('[Logbook] Export failed:', error);
+    showNotification('Export failed', 'error');
+  }
+}
+
+/**
+ * Prepends a new log entry to the table (called via WebSocket)
+ * Uses smart loading to preserve user's scroll position
+ */
+export function prependLogEntry(entry) {
+  // Store current scroll position
+  const tbody = document.getElementById('logbookTableBody');
+  const container = tbody ? tbody.closest('.logbook-table-container') : null;
+  const scrollTop = container ? container.scrollTop : 0;
+
+  // Add entry to array
+  logEntries.unshift(entry);
+
+  // Re-render table
+  renderLogTable();
+
+  // Restore scroll position (smart auto-prepend)
+  if (container &amp;&amp; scrollTop > 0) {
+    container.scrollTop = scrollTop;
+  }
+
+  // Update count
+  const countEl = document.getElementById('logbookCount');
+  if (countEl) {
+    countEl.textContent = `${logEntries.length} entries`;
+  }
+}
+
+/**
+ * Deletes all logs for the current user
+ * Called from settings module
+ */
+export async function deleteAllLogsConfirmed() {
+  try {
+    const data = await deleteAllLogs();
+
+    if (data.success) {
+      logEntries = [];
+      renderLogTable();
+      showNotification('AutoPilot Logbook', {
+        body: 'All logs deleted',
+        icon: 'data:image/svg+xml,&lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">&lt;text y="50%" x="50%" text-anchor="middle" font-size="80">📣&lt;/text>&lt;/svg>'
+      });
+    } else {
+      showNotification('AutoPilot Logbook', {
+        body: 'Failed to delete logs',
+        icon: 'data:image/svg+xml,&lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">&lt;text y="50%" x="50%" text-anchor="middle" font-size="80">📣&lt;/text>&lt;/svg>'
+      });
+    }
+  } catch (error) {
+    console.error('[Logbook] Delete failed:', error);
+    showNotification('AutoPilot Logbook', {
+      body: 'Failed to delete logs',
+      icon: 'data:image/svg+xml,&lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">&lt;text y="50%" x="50%" text-anchor="middle" font-size="80">📣&lt;/text>&lt;/svg>'
     });
-
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
+}
 
 /**
- * POST /api/company-name - Retrieves company name for a given user ID.
- *
- * This endpoint looks up a company name by user ID, leveraging the cached
- * getCompanyName() function to minimize API calls. Used by frontend for
- * displaying company names in various UI contexts.
- *
- * Why This Endpoint:
- * - Centralizes company name lookups
- * - Leverages server-side cache (reduces API calls)
- * - Provides fallback for failed lookups
- * - Validates user_id to prevent invalid API calls
- *
- * Validation:
- * - user_id must be positive integer
- * - Returns 400 error for invalid user_id
- *
- * Caching:
- * - getCompanyName() uses Map-based cache
- * - Cache persists for server lifetime
- * - Significant performance improvement for repeated lookups
- *
- * Fallback:
- * - Returns "User {userId}" if lookup fails
- * - Never throws error to frontend
- *
- * Side Effects:
- * - May make API call to /user/get-company on cache miss
- * - Stores result in userNameCache
- *
- * @name POST /api/company-name
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object with { user_id: number } body
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response { company_name: string }
+ * Fetches and returns current log file size
+ * Called from settings module
  */
-router.post('/company-name', express.json(), async (req, res) => {
-  const { user_id } = req.body;
-  if (!Number.isInteger(user_id) || user_id &lt;= 0) {
-    return res.status(400).json({ error: 'Invalid user ID' });
-  }
-
+export async function getLogFileSize() {
   try {
-    const companyName = await getCompanyName(user_id);
-    res.json({ company_name: companyName });
+    const data = await fetchLogbookFileSize();
+    if (data.success) {
+      return data.formatted;
+    }
+    return '0 B';
   } catch (error) {
-    res.status(500).json({ error: 'Could not load company name' });
+    console.error('[Logbook] Failed to get file size:', error);
+    return 'Unknown';
   }
-});
-
-/**
- * GET /api/alliance-members - Retrieves list of all alliance members.
- *
- * This endpoint fetches the complete alliance member roster from the game API
- * and returns it as a simplified array of user_id and company_name pairs.
- *
- * Why This Endpoint:
- * - Provides member list for UI features (member directory, mentions, etc.)
- * - Simplifies game API response (returns only needed fields)
- * - Gracefully handles users not in alliance
- *
- * No Alliance Handling:
- * - Returns empty array [] when user not in alliance
- * - Prevents 404 errors from game API
- *
- * Response Format:
- * [
- *   { user_id: 12345, company_name: "ABC Shipping" },
- *   { user_id: 67890, company_name: "XYZ Corp" }
- * ]
- *
- * Side Effects:
- * - Makes API call to /alliance/get-alliance-members
- *
- * @name GET /api/alliance-members
- * @function
- * @memberof module:server/routes/alliance
- * @param {express.Request} req - Express request object
- * @param {express.Response} res - Express response object
- * @returns {Promise&lt;void>} Sends JSON response with members array
- */
-router.get('/alliance-members', async (req, res) => {
-  if (!getAllianceId()) {
-    return res.json([]);
-  }
-
-  try {
-    const data = await apiCall('/alliance/get-alliance-members', 'POST', {});
-    const members = data.data.members.map(member => ({
-      user_id: member.user_id,
-      company_name: member.company_name
-    }));
-    res.json(members);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-module.exports = router;
+}
 </code></pre>
         </article>
     </section>

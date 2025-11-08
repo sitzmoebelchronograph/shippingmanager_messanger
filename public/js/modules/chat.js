@@ -702,6 +702,11 @@ export function initWebSocket() {
         handleHeaderDataUpdate(data);
       } else if (type === 'event_data_update') {
         handleEventDataUpdate(data);
+      } else if (type === 'logbook_update') {
+        // Logbook entry update (new autopilot action logged)
+        if (window.handleLogbookUpdate) {
+          window.handleLogbookUpdate(data);
+        }
       } else if (type === 'all_data_updated') {
         // Show summary line with all current values (only in summary mode)
         if (AUTOPILOT_LOG_LEVEL === 'summary' || AUTOPILOT_LOG_LEVEL === 'detailed') {
@@ -1289,32 +1294,6 @@ async function handleVesselsDepartComplete(data) {
     }
   }
 
-  // Desktop notification
-  if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyCargoMarshalDesktop && Notification.permission === 'granted') {
-    let title = '';
-    let body = '';
-    if (succeeded.count > 0 && failed.count === 0) {
-      // All succeeded
-      title = `🚢 Cargo Marshal - ${succeeded.count} vessels departed`;
-      body = `\n💰 Net Profit: $${formatNumber(succeeded.totalIncome)}\nUsed ⛽ Fuel: ${formatNumber(succeeded.totalFuelUsed)}t\nUsed 💨 CO2: ${formatNumber(succeeded.totalCO2Used)}t`;
-    } else if (succeeded.count === 0 && failed.count > 0) {
-      // All failed
-      title = `🚢 Cargo Marshal - No vessels departed`;
-      body = `\n❌ Failed: ${failed.count} vessel${failed.count > 1 ? 's' : ''}`;
-    } else {
-      // Mixed results
-      title = `🚢 Cargo Marshal - ${succeeded.count} departed, ${failed.count} failed`;
-      body = `\n💰 Net Profit: $${formatNumber(succeeded.totalIncome)}\nUsed ⛽ Fuel: ${formatNumber(succeeded.totalFuelUsed)}t\nUsed 💨 CO2: ${formatNumber(succeeded.totalCO2Used)}t`;
-    }
-
-    await showNotification(title, {
-      body: body,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' font-size='80'>🚢</text></svg>",
-      tag: 'cargo-marshal',
-      silent: false
-    });
-  }
-
   // Force immediate vessel count update and unlock depart button
   if (window.updateVesselCount) {
     await window.updateVesselCount();
@@ -1383,16 +1362,6 @@ async function handleVesselsDeparted(data) {
     showSideNotification(message, 'success', 15000);
   }
 
-  // Desktop notification
-  if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyCargoMarshalDesktop && Notification.permission === 'granted') {
-    await showNotification('🚢 Cargo Marshal - Departure Complete', {
-      body: `Vessels Departed: ${count}\n\n💰 Net Profit: $${formatNumber(totalIncome)}\nUsed ⛽ Fuel: ${formatNumber(totalFuelUsed)}t\nUsed 💨 CO2: ${formatNumber(totalCO2Used)}t`,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' font-size='80'>🚢</text></svg>",
-      tag: 'cargo-marshal',
-      silent: false
-    });
-  }
-
   // Force immediate vessel count update (bypasses anti-flicker logic)
   if (window.updateVesselCount) {
     await window.updateVesselCount();
@@ -1455,22 +1424,6 @@ async function handleVesselsFailed(data) {
   if (settings.autoPilotNotifications && settings.notifyCargoMarshalInApp) {
     showSideNotification(message, 'warning', null, true);
   }
-
-  // Desktop notification
-  if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyCargoMarshalDesktop && Notification.permission === 'granted') {
-    // Create list of vessels with reasons (cleaned names)
-    const vesselsList = vessels.map(v => {
-      const cleanName = v.name.replace(/^(MV|MS|MT|SS)\s+/i, '');
-      return `${cleanName}: ${v.reason}`;
-    }).join('\n');
-
-    await showNotification(`⚠️ Cargo Marshal - ${count} vessel${count > 1 ? 's' : ''} not departed`, {
-      body: `\n${vesselsList}`,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' font-size='80'>⚠️</text></svg>",
-      tag: 'cargo-marshal-failed',
-      silent: false
-    });
-  }
 }
 
 /**
@@ -1522,16 +1475,6 @@ async function handleVesselsRepaired(data) {
     showSideNotification(message, 'success', null, false);
   }
 
-  // Desktop notification (keep it short)
-  if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyYardForemanDesktop && Notification.permission === 'granted') {
-    await showNotification(`🔧 Yard Foreman - ${count} vessel${count > 1 ? 's' : ''} repaired`, {
-      body: `\n💰 Total cost $${formatNumber(totalCost)}`,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' font-size='80'>🔧</text></svg>",
-      tag: 'yard-foreman',
-      silent: false
-    });
-  }
-
   // Force immediate repair count update
   if (window.updateRepairCount) {
     window.updateRepairCount(window.getSettings ? window.getSettings() : {});
@@ -1565,18 +1508,6 @@ async function handleCampaignsRenewed(data) {
   const settings = window.getSettings ? window.getSettings() : {};
   if (settings.autoPilotNotifications && settings.notifyReputationChiefInApp) {
     showSideNotification(message, 'success', 10000);
-  }
-
-  // Desktop notification
-  if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyReputationChiefDesktop && Notification.permission === 'granted') {
-    const types = campaigns.map(c => c.type).join(', ');
-    const totalCost = campaigns.reduce((sum, c) => sum + c.price, 0);
-    await showNotification(`📊 Reputation Chief - ${campaigns.length} renewed`, {
-      body: `\nTypes: ${types}\nCost: $${formatNumber(totalCost)}`,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' font-size='80'>📊</text></svg>",
-      tag: 'reputation-chief',
-      silent: false
-    });
   }
 }
 
@@ -1622,16 +1553,6 @@ async function handleAutoCoopComplete(data) {
     showSideNotification(message, totalSent === totalRequested ? 'success' : 'warning', 12000);
   }
 
-  // Desktop notification
-  if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyFairHandDesktop && Notification.permission === 'granted') {
-    await showNotification(`🤝 The Fair Hand - ${totalSent} vessels distributed`, {
-      body: `\nSent to ${successResults.length} alliance members`,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' font-size='80'>🤝</text></svg>",
-      tag: 'the-fair-hand',
-      silent: false
-    });
-  }
-
   // Update COOP badge
   if (window.updateCoopBadge) {
     await window.updateCoopBadge();
@@ -1659,16 +1580,6 @@ async function handleAutoCoopNoTargets(data) {
   // In-app alert
   if (settings.autoPilotNotifications && settings.notifyFairHandInApp) {
     showSideNotification(message, 'warning', 8000);
-  }
-
-  // Desktop notification
-  if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyFairHandDesktop && Notification.permission === 'granted') {
-    await showNotification(`🤝 The Fair Hand - No eligible targets`, {
-      body: `\n${available} vessels available but all members have restrictions`,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='50%' x='50%' text-anchor='middle' font-size='80'>⚠️</text></svg>",
-      tag: 'the-fair-hand-warning',
-      silent: false
-    });
   }
 }
 
@@ -2371,11 +2282,6 @@ function handleHijackingUpdate(data) {
       window.showSideNotification(blackbeardMessage, 'success', 12000);
     }
 
-    // Desktop notification
-    if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyCaptainBlackbeardDesktop) {
-      // Desktop notification logic would go here if needed
-    }
-
     // Refresh messenger to show Captain Blackbeard signature
     if (window.refreshMessengerChatList) {
       window.refreshMessengerChatList();
@@ -2389,11 +2295,6 @@ function handleHijackingUpdate(data) {
     if (settings.autoPilotNotifications && settings.notifyCaptainBlackbeardInApp && window.showSideNotification) {
       window.showSideNotification(blackbeardErrorMessage, 'error', 12000);
     }
-
-    // Desktop notification
-    if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyCaptainBlackbeardDesktop) {
-      // Desktop notification logic would go here if needed
-    }
   } else if (action === 'insufficient_funds') {
     // Show Captain Blackbeard insufficient funds message as side notification
     const settings = window.getSettings ? window.getSettings() : {};
@@ -2403,11 +2304,6 @@ function handleHijackingUpdate(data) {
     // In-app notification
     if (settings.autoPilotNotifications && settings.notifyCaptainBlackbeardInApp && window.showSideNotification) {
       window.showSideNotification(blackbeardMoneyMessage, 'warning', 15000);
-    }
-
-    // Desktop notification
-    if (settings.autoPilotNotifications && settings.enableDesktopNotifications && settings.notifyCaptainBlackbeardDesktop) {
-      // Desktop notification logic would go here if needed
     }
   }
 }

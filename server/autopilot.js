@@ -342,9 +342,10 @@ async function updateAllData() {
     const eventData = eventArray.length > 0 ? eventArray[0] : null;
 
     // Additional API calls for data not in /game/index
-    const [coopData, allianceData] = await Promise.all([
+    const [coopData, allianceData, campaigns] = await Promise.all([
       fetchCoopDataCached(),
-      fetchAllianceDataCached()
+      fetchAllianceDataCached(),
+      gameapi.fetchCampaigns()
     ]);
 
     // Add coop_boost from alliance data
@@ -432,6 +433,15 @@ async function updateAllData() {
       if (broadcastToUser) {
         broadcastToUser(userId, 'event_data_update', eventData);
       }
+    }
+
+    // Update campaign badge
+    const activeCount = countActiveCampaignTypes(campaigns);
+    if (broadcastToUser) {
+      broadcastToUser(userId, 'campaign_status_update', {
+        activeCount: activeCount,
+        active: campaigns.active
+      });
     }
 
     // Send completion event

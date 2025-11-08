@@ -12,6 +12,7 @@ const logger = require('../utils/logger');
 const { apiCall } = require('../utils/api');
 const config = require('../config');
 const { saveSettings } = require('../settings-schema');
+const { logAutopilotAction } = require('../logbook');
 
 const DEBUG_MODE = config.DEBUG_MODE;
 
@@ -135,6 +136,21 @@ async function autoAnchorPointPurchase(userId, autopilotPaused, broadcastToUser,
 
     logger.log(`[Auto-Anchor] Success! Purchased ${amount} anchor point(s) for $${totalCost.toLocaleString()}. Construction timer started.`);
 
+    // Log to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Anchor',
+      'SUCCESS',
+      `${amount} point${amount > 1 ? 's' : ''} | -$${totalCost.toLocaleString()}`,
+      {
+        amount,
+        pricePerPoint: price,
+        totalCost,
+        remainingCash: bunker.cash,
+        constructionStarted: true
+      }
+    );
+
     // Broadcast success notification
     if (broadcastToUser) {
       broadcastToUser(userId, 'user_action_notification', {
@@ -193,6 +209,18 @@ async function autoAnchorPointPurchase(userId, autopilotPaused, broadcastToUser,
 
   } catch (error) {
     logger.error('[Auto-Anchor] Error:', error.message);
+
+    // Log error to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Anchor',
+      'ERROR',
+      `Purchase failed: ${error.message}`,
+      {
+        error: error.message,
+        stack: error.stack
+      }
+    );
   }
 }
 

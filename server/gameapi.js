@@ -564,6 +564,7 @@ async function departVessel(vesselId, speed, guards = 0) {
     destination: vesselData?.route_destination,
     income: income,
     harborFee: departInfo.harbor_fee,
+    netIncome: income, // depart_income is already NET (after fees)
     fuelUsed: departInfo.fuel_usage / 1000, // kg to tons
     co2Used: departInfo.co2_emission / 1000, // kg to tons,
     speed: speed,
@@ -762,7 +763,7 @@ async function bulkRepairVessels(vesselIds) {
     return { success: false, count: 0, totalCost: 0 };
   }
 
-  const totalCost = data.data?.total_cost;
+  const totalCost = data.data?.total_cost || 0;
   if (DEBUG_MODE) {
     logger.log(`[GameAPI] Repaired ${vesselIds.length} vessels - API returned cost: $${totalCost}`);
   }

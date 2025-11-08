@@ -12,6 +12,7 @@ const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
 const config = require('../config');
+const { logAutopilotAction } = require('../logbook');
 
 const DEBUG_MODE = config.DEBUG_MODE;
 
@@ -145,9 +146,15 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
       });
     }
 
-    // Track departed and failed vessels
+    // Track departed, failed, and warning vessels
     const departedVessels = [];
     const failedVessels = [];
+    const warningVessels = [];
+
+    // Separate arrays for logbook (not cleared after batches)
+    const allDepartedVessels = [];
+    const allWarningVessels = [];
+
     const CHUNK_SIZE = 20;
     let processedCount = 0;
 
@@ -425,7 +432,14 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
 
           // Check for $0 revenue
           if (result.income === 0 && result.harborFee === 0) {
-            logger.log(`[Depart] WARNING: ${vessel.name} departed with $0 revenue - demand exhausted during batch, skipping statistics`);
+            logger.log(`[Depart] WARNING: ${vessel.name} departed with $0 revenue - demand exhausted during batch`);
+            const warningData = {
+              name: result.vesselName,
+              destination: result.destination,
+              reason: 'Demand exhausted - $0 revenue'
+            };
+            warningVessels.push(warningData);
+            allWarningVessels.push(warningData);
             continue;
           }
 
@@ -437,7 +451,7 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
           const actualUtilization = vesselCapacity > 0 ? actualCargoLoaded / vesselCapacity : 0;
 
           // Successfully departed
-          departedVessels.push({
+          const vesselData = {
             name: result.vesselName,
             destination: result.destination,
             capacity: vesselCapacity,
@@ -456,7 +470,9 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
             teuRefrigerated: result.teuRefrigerated,
             fuelCargo: result.fuelCargo,
             crudeCargo: result.crudeCargo
-          });
+          };
+          departedVessels.push(vesselData);
+          allDepartedVessels.push(vesselData);
 
         } catch (error) {
           logger.error(`[Depart] Failed to depart ${vessel.name}:`, error.message);
@@ -486,7 +502,24 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
       await tryUpdateAllData();
     }
 
-    return { success: true };
+    // Calculate totals from ALL departed vessels (not just last batch)
+    const totalRevenue = allDepartedVessels.reduce((sum, v) => sum + (v.netIncome || 0), 0);
+    const totalFuelUsed = allDepartedVessels.reduce((sum, v) => sum + (v.fuelUsed || 0), 0);
+    const totalCO2Used = allDepartedVessels.reduce((sum, v) => sum + (v.co2Used || 0), 0);
+    const totalHarborFees = allDepartedVessels.reduce((sum, v) => sum + (v.harborFee || 0), 0);
+
+    return {
+      success: true,
+      departedCount: allDepartedVessels.length,
+      failedCount: failedVessels.length,
+      warningCount: allWarningVessels.length,
+      departedVessels: allDepartedVessels.slice(),
+      warningVessels: allWarningVessels.slice(),
+      totalRevenue,
+      totalFuelUsed,
+      totalCO2Used,
+      totalHarborFees
+    };
 
   } catch (error) {
     logger.error('[Depart] Error:', error.message);
@@ -528,8 +561,56 @@ async function autoDepartVessels(autopilotPaused, broadcastToUser, autoRebuyAll,
     logger.log(`[Auto-Depart] Checking... ${settings.autoDepartAll ? 'ENABLED' : 'DISABLED'}`);
   }
 
-  // Call universal depart function with all vessels (vesselIds = null)
-  await departVessels(userId, null, broadcastToUser, autoRebuyAll, tryUpdateAllData);
+  try {
+    // Call universal depart function with all vessels (vesselIds = null)
+    const result = await departVessels(userId, null, broadcastToUser, autoRebuyAll, tryUpdateAllData);
+
+    // Log success to autopilot logbook
+    if (result.success && result.reason !== 'no_vessels' && result.departedCount > 0) {
+      await logAutopilotAction(
+        userId,
+        'Auto-Depart',
+        'SUCCESS',
+        `${result.departedCount} vessels | +$${result.totalRevenue.toLocaleString()}`,
+        {
+          vesselCount: result.departedCount,
+          totalRevenue: result.totalRevenue,
+          totalFuelUsed: result.totalFuelUsed,
+          totalCO2Used: result.totalCO2Used,
+          totalHarborFees: result.totalHarborFees,
+          departedVessels: result.departedVessels
+        }
+      );
+    }
+
+    // Log warnings if any vessels had $0 revenue
+    if (result.success && result.warningCount > 0) {
+      await logAutopilotAction(
+        userId,
+        'Auto-Depart',
+        'WARNING',
+        `${result.warningCount} vessel${result.warningCount > 1 ? 's' : ''} with demand exhausted | $0 revenue`,
+        {
+          vesselCount: result.warningCount,
+          warningVessels: result.warningVessels
+        }
+      );
+    }
+  } catch (error) {
+    logger.error('[Auto-Depart] Error:', error.message);
+
+    // Log error to autopilot logbook
+    await logAutopilotAction(
+      userId,
+      'Auto-Depart',
+      'ERROR',
+      `Departure failed: ${error.message}`,
+      {
+        error: error.message,
+        stack: error.stack
+      }
+    );
+  }
 }
 
 module.exports = {

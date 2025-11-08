@@ -112,14 +112,14 @@ export function showConfirmDialog(options) {
     dialog.innerHTML = `
       <div class="confirm-dialog-header">
         <h3>${escapeHtml(options.title || 'Confirm')}</h3>
-        <div class="confirm-dialog-buttons">
-          ${cancelButtonHtml}
-          <button class="confirm-dialog-btn confirm" data-action="confirm">${escapeHtml(options.confirmText || 'Confirm')}</button>
-        </div>
       </div>
       <div class="confirm-dialog-body">
-        ${options.message ? `<p>${options.message}</p>` : ''}
+        ${options.message ? options.message : ''}
         ${detailsHtml}
+      </div>
+      <div class="confirm-dialog-footer">
+        ${cancelButtonHtml}
+        <button class="confirm-dialog-btn confirm" data-action="confirm">${escapeHtml(options.confirmText || 'Confirm')}</button>
       </div>
     `;
 
