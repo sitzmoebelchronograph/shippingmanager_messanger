@@ -137,7 +137,7 @@ async function updatePrices() {
     state.updatePrices(userId, prices.fuel, prices.co2, prices.eventDiscount, prices.regularFuel, prices.regularCO2);
 
     if (broadcastToUser) {
-      broadcastToUser(userId, 'prices_update', prices);
+      broadcastToUser(userId, 'price_update', prices);
     }
 
     await checkPriceAlerts(userId, prices);
