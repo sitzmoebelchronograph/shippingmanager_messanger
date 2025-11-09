@@ -195,6 +195,9 @@ import {
   setChatScrollListener
 } from './modules/chat.js';
 
+// Expose loadMessages to window for alliance chat badge updates
+window.loadMessages = loadMessages;
+
 // Import messenger functionality
 import {
   openMessenger,
@@ -2192,6 +2195,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const overlay = document.getElementById('allianceChatOverlay');
     if (overlay) {
       overlay.classList.remove('hidden');
+
+      // Mark all messages as read when opening chat
+      const chatFeed = document.getElementById('chatFeed');
+      if (chatFeed && window.loadMessages) {
+        window.loadMessages(chatFeed);
+      }
     }
   });
 

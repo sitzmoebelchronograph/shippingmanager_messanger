@@ -422,22 +422,18 @@ def start_server(settings):
             # Running as .py script - use node with app.js
             server_cmd = ['node', 'app.js']
 
-        # Start the server process (output goes to winston log file)
-        # In debug mode, redirect stderr to debug.log to capture early crashes
-        if settings.get('debugMode', False):
-            debug_log = DATA_ROOT / 'logs' / 'debug.log'
-            debug_log.parent.mkdir(parents=True, exist_ok=True)
-            stderr_handle = open(debug_log, 'a')  # append mode
-            print(f"[SM-CoPilot] Debug mode: stderr -> {debug_log}", file=sys.stderr)
-        else:
-            stderr_handle = subprocess.DEVNULL
+        # Start the server process - redirect stderr/stdout to server.log
+        # This captures early crashes before Winston is initialized
+        server_log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_handle = open(server_log_path, 'a', encoding='utf-8')  # append mode (after clear above)
+        print(f"[SM-CoPilot] Server output -> {server_log_path}", file=sys.stderr)
 
         server_process = subprocess.Popen(
             server_cmd,
             cwd=str(PROJECT_ROOT),
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=stderr_handle,
+            stdout=log_handle,  # All output to server.log
+            stderr=log_handle,  # All errors to server.log
             stdin=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
         )
@@ -477,9 +473,30 @@ def start_server(settings):
 
                     # Check if process crashed
                     if server_process.poll() is not None:
-                        error_msg = "Server process terminated unexpectedly (check server.log for errors)"
+                        # Read actual error from server.log
+                        log_content = ""
+                        try:
+                            log_handle.flush()  # Ensure all output is written
+                            if server_log_path.exists():
+                                with open(server_log_path, 'r', encoding='utf-8') as f:
+                                    # Get last 50 lines to show crash context
+                                    lines = f.readlines()
+                                    log_content = ''.join(lines[-50:]).strip()
+                        except Exception as e:
+                            print(f"[SM-CoPilot] Could not read server log: {e}", file=sys.stderr)
+
+                        error_msg = f"Server process terminated unexpectedly (exit code: {server_process.returncode})"
                         print(f"[SM-CoPilot] {error_msg}", file=sys.stderr)
                         log_to_server_file('fatal', error_msg)
+
+                        # Show the actual error from log if available
+                        if log_content:
+                            print(f"[SM-CoPilot] Server log output (last 50 lines):", file=sys.stderr)
+                            print(log_content, file=sys.stderr)
+                            log_to_server_file('fatal', f'Server crash log: {log_content}')
+                        else:
+                            print(f"[SM-CoPilot] No error output in {server_log_path}", file=sys.stderr)
+
                         log_to_server_file('fatal', 'Application exiting due to server crash')
                         return False
 

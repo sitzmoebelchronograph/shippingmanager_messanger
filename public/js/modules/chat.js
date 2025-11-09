@@ -205,11 +205,53 @@ export async function loadMessages(chatFeed) {
       autoScroll = false;
     }
 
+    // Update unread badge (only if chat is closed)
+    updateAllianceChatBadge(newMessages);
+
   } catch (error) {
     console.error('Error loading messages:', error);
     if (allMessages.length === 0) {
       chatFeed.innerHTML = '<div class="empty-message" style="color:#ef4444;">Could not connect to chat server.</div>';
     }
+  }
+}
+
+/**
+ * Updates the alliance chat badge with unread message count.
+ * Only shows badge if chat is closed and there are unread messages.
+ *
+ * @param {Array<Object>} messages - All alliance chat messages
+ * @returns {void}
+ */
+function updateAllianceChatBadge(messages) {
+  const overlay = document.getElementById('allianceChatOverlay');
+  const badge = document.getElementById('allianceChatBadge');
+
+  if (!badge || !overlay) return;
+
+  // If chat is open, mark all as read and hide badge
+  const isChatOpen = !overlay.classList.contains('hidden');
+  if (isChatOpen) {
+    if (messages.length > 0) {
+      const latestTimestamp = Math.max(...messages.map(m => new Date(m.timestamp).getTime()));
+      localStorage.setItem('allianceChatLastRead', latestTimestamp.toString());
+    }
+    badge.classList.add('hidden');
+    return;
+  }
+
+  // Chat is closed - count unread messages
+  const lastReadTimestamp = parseInt(localStorage.getItem('allianceChatLastRead') || '0');
+  const unreadCount = messages.filter(msg => {
+    const msgTimestamp = new Date(msg.timestamp).getTime();
+    return msgTimestamp > lastReadTimestamp && msg.type === 'chat'; // Only count chat messages, not feed events
+  }).length;
+
+  if (unreadCount > 0) {
+    badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
   }
 }
 

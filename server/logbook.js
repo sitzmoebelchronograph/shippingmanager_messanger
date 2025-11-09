@@ -14,7 +14,7 @@
 
 const fs = require('fs').promises;
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const logger = require('./utils/logger');
 
 // Configuration
@@ -144,7 +144,7 @@ async function flushAllToDisk() {
  */
 async function logAutopilotAction(userId, autopilot, status, summary, details = {}) {
   const logEntry = {
-    id: uuidv4(),
+    id: crypto.randomUUID(),
     timestamp: Date.now(),
     autopilot,
     status,

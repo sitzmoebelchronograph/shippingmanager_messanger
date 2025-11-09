@@ -4,12 +4,14 @@ A comprehensive "Addon" for the beloved game [Shipping Manager](https://shipping
 
 ## Key Features at a Glance
 
-* **AutoPilot System**: Intelligent automation for fuel/CO2 purchasing, vessel operations, and more.
-* **Mobile Support**: As a Steam player, you can now receive **mobile notifications** via your Wi-Fi at home.
-* **Fleet Management**: Streamlined vessel purchasing, **bulk repairs**, automated departures, and **bulk selling**.
+* **Harbor Map**: Interactive world map with live fleet tracking, vessel/port details, and route visualization
+* **Logbook**: Comprehensive event tracking for alliance activities, vessel operations, and game history
+* **AutoPilot System**: Intelligent automation for fuel/CO2 purchasing, vessel operations, and more
+* **Mobile Support**: As a Steam player, you can now receive **mobile notifications** via your Wi-Fi at home
+* **Fleet Management**: Streamlined vessel purchasing, **bulk repairs**, automated departures, and **bulk selling with shopping cart**
 * **Price Alerts**: Set up your own custom price alerts!
-* **Alliance Cooperation**: Easily manage and send cooperation vessels to alliance members.
-* **Bug-Free Chat**: Alliance chat and private messaging **without the page reload bugs** that Steam players commonly experience with [Shippingmanager.cc](https://shippingmanager.cc/).
+* **Alliance Cooperation**: Easily manage and send cooperation vessels to alliance members
+* **Bug-Free Chat**: Alliance chat and private messaging **without the page reload bugs** that Steam players commonly experience with [Shippingmanager.cc](https://shippingmanager.cc/)
 
 ...and much more!
 
@@ -133,10 +135,91 @@ Here are the first available features. I'm sure I forgot a few, but you're welco
 ### Vessel Selling
 
 - **Sell individual vessels** from your fleet
-- **Bulk vessel selling** with multi-selection
-- **Detailed sale confirmation** showing vessel name and sale price
+- **Bulk vessel selling** with checkbox-based multi-selection
+- **Shopping cart system** for vessel sales:
+  - Summary-first layout (Total Items, Total Revenue)
+  - Cart items show original price (gray) and sell price (green)
+  - Quantity controls (+/- buttons) for each vessel type
+  - Remove individual items from cart
+- **Direct checkbox controls** for individual vessel selection
+- **Detailed sale confirmation** showing original price and sell price
 - **Filter by vessel type**: Container/Tanker
-- **Safety confirmation** prevents accidental sales
+- **Mobile-optimized** action buttons with emoji icons (🏁 Depart, 💵 Sell)
+- **API-powered pricing** - real sell prices from game API (no fantasy formulas)
+
+### Harbor Map
+
+Interactive world map visualization of your fleet, ports, and routes:
+
+- **Live Fleet Tracking**:
+  - Real-time vessel positions on interactive Leaflet.js map
+  - Color-coded vessel markers (green: in port, blue: at sea, orange: anchored)
+  - Vessel tooltips with name, type, and status
+  - Click vessels to open detailed info panel
+- **Port Visualization**:
+  - All game ports displayed with markers
+  - Port tooltips showing port name and code
+  - Click ports to view demand information
+  - Filter: Show all ports or only your active ports
+- **Route Display**:
+  - Active routes drawn as lines on map
+  - Color-coded by vessel status
+  - Hover routes to see vessel details
+- **Vessel Detail Panel** (draggable):
+  - Complete vessel specifications (capacity, range, speed, fuel, CO2)
+  - Current position and status
+  - Loaded cargo details with color-coded capacity
+  - Maintenance hours and service info
+  - Direct actions: Depart vessel, Sell vessel, View history
+  - Mobile-optimized with emoji action buttons
+- **Port Detail Panel** (draggable):
+  - Demand information for all cargo types
+  - View all vessels on this route
+  - Route profitability calculations
+- **Route Calculation**:
+  - Automatic profit calculation per route
+  - Fuel and CO2 consumption estimates
+  - Duration calculation
+  - Demand-based route optimization
+- **Map Controls**:
+  - Weather radar toggle (visual effects)
+  - Theme switching (dark/light map styles)
+  - Zoom and pan controls
+  - Mobile swipe support
+- **Panel Management**:
+  - Drag panels to reposition
+  - Close panels independently
+  - Automatic layout on small screens
+
+### Logbook
+
+Comprehensive event tracking and history management:
+
+- **Alliance Events Tracking**:
+  - Member join/leave events
+  - Cooperation vessel sending/receiving
+  - Alliance chat milestones
+  - Fuel and CO2 cooperation activities
+- **Vessel Events Tracking**:
+  - Route completions with earnings
+  - Vessel purchases and sales
+  - Repairs and maintenance
+  - Hijacking incidents
+  - Vessel departures
+- **Event History**:
+  - Chronological event timeline
+  - Detailed event information (timestamp, type, details)
+  - Filter by event type
+  - Search functionality
+  - Export to CSV/JSON
+- **Event Notifications**:
+  - Real-time event notifications
+  - Event badges in UI
+  - Customizable notification settings
+- **Statistics**:
+  - Total events by type
+  - Event trends over time
+  - Most active vessels/routes
 
 ### Alliance Cooperation
 
@@ -379,20 +462,18 @@ If OS keyring is unavailable:
 
 ***
 
-## Known Game Bugs & Tracking
+## Route Optimization Detection & Tracking
 
-**Harbor Fee Bug Detection & Documentation**
+**Sub-Optimal Route Detection**
 
-It appears the API returns a harbor fee value that is not used for the actual in-game calculations. From the outside, it looks like someone forgot to set a percentage or decimal places correctly for the UI display.
+The application analyzes harbor fees and earnings for each route to identify potentially sub-optimal routes. When a route's harbor fees significantly reduce profitability, this indicates the route might not be optimal for that vessel.
 
-The amount credited in-game is not identical to what should have been deducted if the displayed harbor fee were correct and actually used for calculations. This suggests the API response contains incorrect or display-only harbor fee values.
-
-When this bug is detected, the application:
-- Displays the bug in-game with full details
-- Logs the entire transaction in a separate file
-- Preserves the complete API call and response for investigation
-- Prevents duplicate logging of the same harbor bug
-- Provides meaningful information that can be shared with Trophy Games for bug fixing
+When a sub-optimal route is detected during AutoPilot vessel departure, the application:
+- Shows a warning side notification with route details
+- Logs the transaction to the logbook with "⚠️ WARNING" status
+- Preserves departure details for route optimization analysis
+- Helps you identify which routes need optimization
+- Allows you to adjust routes for better profitability
 
 ***
 

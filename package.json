@@ -1,6 +1,6 @@
 {
   "name": "shippingmanager-copilot",
-  "version": "0.1.4",
+  "version": "0.1.4.0",
   "description": "Standalone web interface for Shipping Manager chat and game management",
   "main": "app.js",
   "bin": "app.js",
@@ -18,7 +18,7 @@
     "build:browser-login": "node build/build-browser-login.js",
     "build:package": "node build/build-package.js",
     "build:installer": "node build/build-installer.js",
-    "build:all": "npm run build:python:helpers && npm run build:node && npm run build:python && npm run build:browser-login && npm run build:package && npm run build:installer > development/build-all.log 2>&1",
+    "build:all": "npm run build:python:helpers && npm run build:node && npm run build:python && npm run build:browser-login && npm run build:package && npm run build:installer",
     "lint": "eslint .",
     "bandit": "python -m bandit -r helper/ -c .bandit",
     "bandit:full": "python -m bandit -r helper/",
@@ -59,7 +59,6 @@
     "node-forge": "^1.3.1",
     "page-flip": "^2.0.7",
     "react-pageflip": "^2.0.3",
-    "uuid": "^13.0.0",
     "validator": "^13.15.20",
     "winston": "^3.18.3",
     "ws": "^8.18.3"
