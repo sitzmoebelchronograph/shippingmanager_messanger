@@ -293,7 +293,7 @@ router.post('/company-name', express.json(), async (req, res) => {
   try {
     const companyName = await getCompanyName(user_id);
     res.json({ company_name: companyName });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Could not load company name' });
   }
 });

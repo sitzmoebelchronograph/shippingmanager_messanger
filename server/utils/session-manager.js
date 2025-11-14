@@ -83,7 +83,7 @@ async function getAvailableSessions() {
     const sessions = await loadAllSessions();
     const available = [];
 
-    for (const [userId, sessionData] of Object.entries(sessions)) {
+    for (const userId of Object.keys(sessions)) {
         try {
             const session = await getSession(userId);
             if (session && session.cookie) {

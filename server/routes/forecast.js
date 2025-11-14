@@ -106,7 +106,7 @@ function getTimezoneOffsetHours(timezone) {
     const normalized = timezone.toUpperCase();
 
     // First, try named timezone abbreviations
-    if (timezoneOffsets.hasOwnProperty(normalized)) {
+    if (Object.prototype.hasOwnProperty.call(timezoneOffsets, normalized)) {
         return timezoneOffsets[normalized];
     }
 
@@ -235,10 +235,9 @@ function getNextDayData(forecastData, currentDay) {
  *
  * @param {Array} forecastData - Original data in CEST
  * @param {string} targetTimezone - Target timezone abbreviation
- * @param {number} requestedDay - Specific day to convert (optional)
  * @returns {Object} { success, data, error }
  */
-function convertCESTToTimezone(forecastData, targetTimezone, requestedDay = null) {
+function convertCESTToTimezone(forecastData, targetTimezone) {
     // Get UTC offsets
     const sourceOffset = 2; // CEST is always UTC+2
     const targetOffset = getTimezoneOffsetHours(targetTimezone);

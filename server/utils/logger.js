@@ -50,8 +50,8 @@ function loadLogLevel() {
       const settings = JSON.parse(data);
       return settings.logLevel || 'info';
     }
-  } catch (error) {
-    // Silent fallback
+  } catch {
+    // Silent fallback (ignore errors during settings read)
   }
   return 'info';
 }
@@ -78,18 +78,6 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-/**
- * File format without colors (for file output)
- */
-const fileFormat = winston.format.combine(
-  winston.format.timestamp({
-    format: 'YYYY-MM-DDTHH:mm:ssZ'
-  }),
-  winston.format.printf(({ timestamp, level, message, ...meta }) => {
-    const metaStr = Object.keys(meta).length ? ' ' + JSON.stringify(meta) : '';
-    return `[${timestamp}] [${level.toUpperCase()}] ${message}${metaStr}`;
-  })
-);
 
 /**
  * Get log file paths based on environment (dev vs packaged)

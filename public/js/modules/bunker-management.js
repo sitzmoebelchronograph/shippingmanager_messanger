@@ -22,7 +22,7 @@
  * @requires ui-dialogs - Confirmation dialogs for purchases
  */
 
-import { formatNumber, showSideNotification, showNotification } from './utils.js';
+import { formatNumber, showSideNotification } from './utils.js';
 import { fetchBunkerPrices, purchaseFuel as apiPurchaseFuel, purchaseCO2 as apiPurchaseCO2 } from './api.js';
 import { showConfirmDialog } from './ui-dialogs.js';
 
@@ -422,7 +422,7 @@ export async function buyMaxFuel() {
       console.log(`[Fuel Purchase] SENDING TO API - amountToBuy: ${amountToBuy}t, Math.round(amountToBuy): ${Math.round(amountToBuy)}t, totalCost: $${totalCost}, actualCash: $${actualCash}, displayedPrice: $${displayedPrice}/t`);
     }
 
-    const data = await apiPurchaseFuel(amountToBuy);
+    await apiPurchaseFuel(amountToBuy);
 
     // Backend broadcasts notification to ALL clients via WebSocket
     // No need to show notification here - all clients will receive it
@@ -472,7 +472,7 @@ export async function buyMaxCO2() {
   if (maxFuel === 0 || maxCO2 === 0) {
     try {
       await updateCapacityFromAPI();
-    } catch (error) {
+    } catch {
       showSideNotification('💨 Cannot purchase - failed to fetch storage capacity', 'error');
       return;
     }
@@ -575,7 +575,7 @@ export async function buyMaxCO2() {
       console.log(`[CO2 Purchase] SENDING TO API - amountToBuy: ${amountToBuy}t, Math.round(amountToBuy): ${Math.round(amountToBuy)}t, totalCost: $${totalCost}, actualCash: $${actualCash}, displayedPrice: $${displayedPrice}/t`);
     }
 
-    const data = await apiPurchaseCO2(amountToBuy);
+    await apiPurchaseCO2(amountToBuy);
 
     // Backend broadcasts notification to ALL clients via WebSocket
     // No need to show notification here - all clients will receive it

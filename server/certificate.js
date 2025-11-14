@@ -41,7 +41,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const os = require('os');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const forge = require('node-forge');
 const logger = require('./utils/logger');
 
@@ -117,7 +117,7 @@ function isCertificateInstalled(commonName) {
 
     // certutil exits with code 0 if certificate found
     return result.status === 0;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -288,7 +288,7 @@ function generateCA() {
 
       logger.info('\nOK CA certificate installed successfully!');
       logger.info('OK Browser will now trust all certificates from this CA\n');
-    } catch (error) {
+    } catch {
       logger.warn('[Certificate] Installation cancelled or failed');
       logger.info('[Certificate] Manual installation:');
       logger.info(`   1. Right-click Command Prompt "Run as Administrator"`);

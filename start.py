@@ -966,9 +966,15 @@ def show_settings_dialog(error_message=None):
             if not host:
                 raise ValueError("Host cannot be empty")
 
+            # Load current settings first to preserve debugMode and logLevel
+            current_settings = load_settings()
+
+            # Merge with new port/host values
             new_settings = {
                 'port': port,
-                'host': host
+                'host': host,
+                'debugMode': current_settings.get('debugMode', False),
+                'logLevel': current_settings.get('logLevel', 'info')
             }
 
             if save_settings(new_settings):
@@ -976,11 +982,15 @@ def show_settings_dialog(error_message=None):
                 settings_window = None
                 root.destroy()
 
-                # Restart server (will show loading dialog automatically)
-                if restart_server(new_settings):
-                    print(f"[SM-CoPilot] Settings saved! Server restarted on {host}:{port}", file=sys.stderr)
-                else:
-                    messagebox.showerror("Error", "Settings saved but server failed to restart")
+                # Restart server in a NEW thread to avoid Tkinter threading issues
+                def do_restart():
+                    if restart_server(new_settings):
+                        print(f"[SM-CoPilot] Settings saved! Server restarted on {host}:{port}", file=sys.stderr)
+                    else:
+                        print(f"[SM-CoPilot] Settings saved but server failed to restart", file=sys.stderr)
+
+                thread = threading.Thread(target=do_restart, daemon=True)
+                thread.start()
             else:
                 messagebox.showerror("Error", "Failed to save settings", parent=root)
 
@@ -2483,6 +2493,33 @@ def on_restart(icon, item):
     print("[SM-CoPilot] Restart requested from tray menu...", file=sys.stderr)
 
     def do_restart():
+        global loading_dialog, settings_window
+
+        # Close ALL open tkinter windows before restart (loading dialog, settings, etc.)
+        if loading_dialog is not None:
+            try:
+                print("[SM-CoPilot] Closing loading dialog...", file=sys.stderr)
+                loading_dialog.quit()
+                loading_dialog.destroy()
+                loading_dialog = None
+            except Exception as e:
+                print(f"[SM-CoPilot] Error closing loading dialog: {e}", file=sys.stderr)
+                loading_dialog = None
+
+        if settings_window is not None:
+            try:
+                print("[SM-CoPilot] Closing settings window...", file=sys.stderr)
+                settings_window.quit()
+                settings_window.destroy()
+                settings_window = None
+            except Exception as e:
+                print(f"[SM-CoPilot] Error closing settings window: {e}", file=sys.stderr)
+                settings_window = None
+
+        # Give tkinter time to cleanup (prevent threading issues)
+        time.sleep(0.5)
+        print("[SM-CoPilot] Windows closed, proceeding with restart...", file=sys.stderr)
+
         # Load current settings
         settings = load_settings()
 

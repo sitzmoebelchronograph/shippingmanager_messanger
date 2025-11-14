@@ -381,7 +381,7 @@ export async function showNotification(title, options) {
         setTimeout(() => notification.close(), 5000);
       }
       return true;
-    } catch (directError) {
+    } catch {
       if (swRegistration && swRegistration.active) {
         await swRegistration.showNotification(title, enhancedOptions);
         return true;
@@ -599,7 +599,7 @@ export async function saveSettings(settings) {
         if (errorData.message) {
           errorMessage = errorData.message;
         }
-      } catch (e) {
+      } catch {
         // Ignore JSON parse errors
       }
       throw new Error(errorMessage);
@@ -672,19 +672,23 @@ export function updatePageTitle(settings) {
 
   // Update page header with shiny effect ONLY on "AutoPilot" word
   const headerElement = document.getElementById('pageHeaderTitle');
-  const toggleBtn = document.getElementById('autopilotToggleBtn');
 
   if (headerElement) {
     // Get notification button first
     const notificationBtn = document.getElementById('notificationBtn');
 
     if (autoPilotActive) {
-      // Create AutoPilot text and button, then re-add notification button
-      headerElement.innerHTML = `Shipping Manager -<span style="margin-left: -10px;"> <span class="autopilot-active" id="autopilotUnit" onclick="window.toggleAutopilot()" title="Toggle AutoPilot">AutoPilot <span id="autopilotToggleBtn" class="autopilot-toggle-btn"><svg id="autopilotToggleIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg></span></span></span>`;
+      // Create AutoPilot text and button
+      headerElement.innerHTML = `Shipping Manager -<span style="margin-left: -10px;"> <span class="autopilot-active" id="autopilotUnit" onclick="window.toggleAutopilot()" title="Toggle AutoPilot">AutoPilot <span id="autopilotToggleBtn" class="autopilot-toggle-btn"><svg id="autopilotToggleIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg></span></span></span><span id="notificationBtnContainer"></span>`;
 
-      // Re-append notification button after innerHTML change
+      // Insert notification button right after the AutoPilot button
       if (notificationBtn) {
-        headerElement.appendChild(notificationBtn);
+        const container = document.getElementById('notificationBtnContainer');
+        if (container) {
+          container.appendChild(notificationBtn);
+        } else {
+          headerElement.appendChild(notificationBtn);
+        }
       }
 
       // Update button state after recreating it

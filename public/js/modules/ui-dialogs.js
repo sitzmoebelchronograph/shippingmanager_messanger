@@ -80,7 +80,6 @@ export function showConfirmDialog(options) {
             const cashAfterMatch = options.details[options.details.length - 1].value.match(/-?[\d,]+/);
 
             if (totalCostMatch && cashAfterMatch) {
-              const totalCost = parseInt(totalCostMatch[0].replace(/,/g, ''));
               const cashAfter = parseInt(cashAfterMatch[0].replace(/,/g, ''));
               // If "Cash after" is positive, purchase is affordable
               rowClass = cashAfter >= 0 ? ' affordable' : ' too-expensive';
@@ -416,7 +415,7 @@ export async function showCampaignsOverlay() {
     const inactiveTypes = requiredTypes.filter(type => !activeTypes.has(type));
 
     if (inactiveTypes.length > 0) {
-      inactiveTypes.forEach((type, index) => {
+      inactiveTypes.forEach((type) => {
         const typeName = type.charAt(0).toUpperCase() + type.slice(1);
         const typeIcon = type === 'reputation' ? '⭐' : type === 'awareness' ? '📢' : '🌱';
         const typeCampaigns = allCampaigns.filter(c => c.option_name === type);

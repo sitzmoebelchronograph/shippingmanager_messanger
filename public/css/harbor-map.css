@@ -544,9 +544,9 @@
   .detail-panel {
     top: auto; /* Remove top positioning */
     bottom: 0; /* Anchor to bottom */
-    height: 425px; /* Fixed height 425px */
-    max-height: 425px;
-    min-height: 425px;
+    height: 500px; /* Fixed height 500px */
+    max-height: 500px;
+    min-height: 500px;
     border-top-left-radius: 10px;
     border-bottom-left-radius: 0; /* No radius on bottom since it's at viewport bottom */
     border-bottom-right-radius: 0;
@@ -871,6 +871,16 @@
   background: rgba(45, 55, 72, 0.3);
   border-radius: 6px;
   border-left: 3px solid #3182ce;
+}
+
+.history-entry.high-harbor-fee {
+  background: rgba(255, 140, 0, 0.15);
+  border-left-color: #ff8c00;
+}
+
+.history-row.high-fee-text {
+  color: #ffa500;
+  font-weight: 600;
 }
 
 .history-route {
@@ -1262,7 +1272,7 @@
 
 .section-content {
   padding: 0;
-  max-height: 600px;
+  max-height: 500px;
   overflow-y: auto;
   overflow-x: hidden;
   transition: max-height 0.3s ease, padding 0.3s ease;

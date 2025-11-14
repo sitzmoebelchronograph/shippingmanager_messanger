@@ -17,15 +17,10 @@
  */
 
 const { apiCall, getUserId } = require('./utils/api');
-const config = require('./config');
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const logger = require('./utils/logger');
 const cache = require('./cache');
-
-// Debug mode - controlled by server/config.js
-const DEBUG_MODE = config.DEBUG_MODE;
 
 // Harbor fee bug logs directory - use APPDATA when running as .exe
 const { getAppDataDir } = require('./config');
@@ -42,11 +37,6 @@ const HARBOR_BUGS_FILE = process.pkg
 const BUNKER_PRICE_BUG_DIR = process.pkg
   ? path.join(getAppDataDir(), 'ShippingManagerCoPilot', 'userdata', 'logs', 'bunkerpricebug')
   : path.join(__dirname, '..', 'userdata', 'logs', 'bunkerpricebug');
-
-// Known bunker price bugs file (for game developers)
-const BUNKER_PRICE_BUGS_FILE = process.pkg
-  ? path.join(getAppDataDir(), 'ShippingManagerCoPilot', 'userdata', 'logs', 'known-bunker-price-bugs.json')
-  : path.join(__dirname, '..', 'userdata', 'logs', 'known-bunker-price-bugs.json');
 
 /**
  * Fetches current market prices for fuel and CO2.
@@ -393,7 +383,6 @@ async function departVessel(vesselId, speed, guards = 0) {
   if (!data.data || !data.data.depart_info) {
     // IMPORTANT: Always pass through the ACTUAL error message from the API
     const actualError = data.error || 'Unknown error';
-    const actualMessage = data.message || actualError;
 
     logger.debug(`[GameAPI] Depart failed for vessel ${vesselId} - Error: "${actualError}"`);
 
@@ -582,7 +571,7 @@ async function fetchCampaigns() {
  * @returns {Promise<Object>} Activation result
  */
 async function activateCampaign(campaignId) {
-  const data = await apiCall('/marketing-campaign/activate-marketing-campaign', 'POST', {
+  await apiCall('/marketing-campaign/activate-marketing-campaign', 'POST', {
     campaign_id: campaignId
   });
 

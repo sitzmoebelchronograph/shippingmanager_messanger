@@ -55,7 +55,6 @@ import {
 } from './modules/utils.js';
 
 // Import API functions
-import { fetchAllianceMembers } from './modules/api.js';
 import { initForecastCalendar, updateEventDiscount } from './modules/forecast-calendar.js';
 import { initEventInfo, updateEventData } from './modules/event-info.js';
 import { initLogbook, prependLogEntry } from './modules/logbook.js';
@@ -179,7 +178,6 @@ import {
 
 // Import coop management
 import {
-  updateCoopBadge,
   showCoopOverlay,
   closeCoopOverlay,
   sendCoopMax
@@ -237,19 +235,13 @@ import {
   updateVesselCount,
   updateRepairCount,
   departAllVessels,
-  repairAllVessels,
   openRepairAndDrydockDialog,
   loadAcquirableVessels,
   showPendingVessels,
-  displayVessels,
-  showEngineFilterOverlay,
-  closeEngineFilterOverlay,
-  purchaseSingleVessel,
-  purchaseBulk,
   showShoppingCart,
-  setVesselFilter,
   lockDepartButton,
-  unlockDepartButton
+  unlockDepartButton,
+  isDepartInProgress
 } from './modules/vessel-management.js';
 
 // Import vessel selling functions
@@ -257,15 +249,14 @@ import {
   openSellVesselsOverlay,
   closeSellVesselsOverlay,
   setSellFilter,
-  bulkSellVessels,
   showSellCart
 } from './modules/vessel-selling.js';
 
 // Import harbor map initialization
-import { initHarborMap, openHarborMap, preloadHarborMapData, startHarborMapAutoUpdate } from './modules/harbor-map-init.js';
+import { initHarborMap } from './modules/harbor-map-init.js';
 
 // Import badge manager for centralized badge updates
-import { updateBadge, updateButtonState, updateButtonTooltip, updateButtonVisibility, BADGE_COLORS } from './modules/badge-manager.js';
+import { updateBadge, updateButtonState, updateButtonTooltip, updateButtonVisibility } from './modules/badge-manager.js';
 
 // =============================================================================
 // Global State and DOM Element References
@@ -409,6 +400,8 @@ function loadCache() {
       // Ready to depart badge and button
       if (readyToDepart !== undefined) {
         updateBadge('vesselCount', readyToDepart, readyToDepart > 0, 'BLUE');
+        // Button state controlled by vessel count on page load
+        // Server will send lock_status via WebSocket to update if operation in progress
         updateButtonState('departAll', readyToDepart === 0);
         updateButtonTooltip('departAll',
           readyToDepart > 0
@@ -509,7 +502,7 @@ function loadCache() {
 
     // Fuel and CO2 prices
     if (data.prices) {
-      const { fuelPrice, co2Price, eventDiscount, regularFuel, regularCO2 } = data.prices;
+      const { fuelPrice, co2Price, eventDiscount } = data.prices;
 
       const fuelPriceDisplay = document.getElementById('fuelPriceDisplay');
       // Only update if we have a valid price (> 0), otherwise keep last known value
@@ -589,7 +582,7 @@ function loadCache() {
 
     // COOP data (alliance cooperation)
     if (data.coop) {
-      const { available, cap, coop_boost } = data.coop;
+      const { available, cap } = data.coop;
 
       // Show COOP container in header
       const coopContainer = document.getElementById('coopContainer');
@@ -784,7 +777,7 @@ function loadCache() {
     const coopContainer = document.getElementById('coopContainer');
     const coopBtn = document.getElementById('coopBtn');
     if (data.coop) {
-      const { available, cap, coop_boost } = data.coop;
+      const { available, cap } = data.coop;
 
       // Show COOP container in header
       if (coopContainer) {
@@ -804,26 +797,10 @@ function loadCache() {
       }
       updateButtonVisibility('allianceChat', true);
 
-      // Update COOP badge (green if >= 3, red if < 3)
-      const coopBadge = document.getElementById('coopBadge');
-      if (coopBadge) {
-        if (available > 0) {
-          coopBadge.textContent = available;
-          coopBadge.classList.remove('hidden');
-          // Green if >= 3, red if < 3
-          if (available >= 3) {
-            coopBadge.classList.remove('badge-red-bg');
-            coopBadge.classList.add('badge-green-bg');
-            console.log(`[COOP Badge] Set to GREEN (available: ${available}), classes:`, coopBadge.className);
-          } else {
-            coopBadge.classList.remove('badge-green-bg');
-            coopBadge.classList.add('badge-red-bg');
-            console.log(`[COOP Badge] Set to RED (available: ${available}), classes:`, coopBadge.className);
-          }
-        } else {
-          coopBadge.classList.add('hidden');
-        }
-      }
+      // Update COOP badge using badge-manager (red if available > 0, green if all slots used)
+      const color = available === 0 ? 'GREEN' : 'RED';
+      updateBadge('coopBadge', available, available > 0, color);
+      console.log(`[COOP Badge] Updated via badge-manager: available=${available}, color=${color}`);
 
       // Update COOP header display
       updateCoopDisplay(cap, available);
@@ -924,23 +901,15 @@ function loadCache() {
 
     // Hijacking badge and button state
     if (data.hijacking !== undefined) {
-      const { openCases, totalCases, hijackedCount } = data.hijacking;
+      const { openCases, hijackedCount } = data.hijacking;
 
-      // Update badge and button
-      const badge = document.getElementById('hijackingBadge');
+      // Update badge using badge-manager (only shows for OPEN cases)
+      updateBadge('hijackingBadge', openCases, openCases > 0, 'RED');
+
+      // Button is always enabled
       const button = document.getElementById('hijackingBtn');
-
-      if (badge && button) {
-        // Button is always enabled
+      if (button) {
         button.disabled = false;
-
-        // Badge only shows for OPEN cases
-        if (openCases > 0) {
-          badge.textContent = openCases;
-          badge.classList.remove('hidden');
-        } else {
-          badge.classList.add('hidden');
-        }
       }
 
       // Update header display
@@ -1084,6 +1053,7 @@ window.debouncedUpdateRepairCount = debouncedUpdateRepairCount;
 window.updateVesselCount = updateVesselCount;
 window.lockDepartButton = lockDepartButton;
 window.unlockDepartButton = unlockDepartButton;
+window.isDepartInProgress = isDepartInProgress;
 window.openRepairAndDrydockDialog = openRepairAndDrydockDialog;
 
 /**
@@ -3249,9 +3219,6 @@ document.addEventListener('DOMContentLoaded', async () => {
      * @returns {void}
      */
     const updateNotificationButtonState = () => {
-      const settings = window.getSettings ? window.getSettings() : {};
-      const desktopNotifsEnabled = settings.enableDesktopNotifications !== undefined ? settings.enableDesktopNotifications : true;
-
       // Only show button if browser permission is missing (regardless of settings)
       if (Notification.permission !== "granted") {
         // Show red disabled megaphone
@@ -3402,7 +3369,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error('Failed to toggle autopilot');
       }
 
-      const result = await response.json();
+      await response.json();
 
       // Update UI immediately (WebSocket will send notification to all clients)
       setStorage('autopilotPaused', JSON.stringify(newPauseState));
@@ -3436,9 +3403,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Show side notification ONLY if state actually changed (not on initial load)
     if (hasChanged) {
       if (data.paused) {
-        showSideNotification('⏸️ <strong>AutoPilot paused</strong><br>All automated functions are now on hold', 'warning', 5000, true);
+        showSideNotification('<strong>AutoPilot ⏸️</strong><br><br>All automated functions are now on hold', 'warning', 5000, true);
       } else {
-        showSideNotification('▶️ <strong>AutoPilot resumed</strong><br>All automated functions are now active', 'success', 5000, true);
+        showSideNotification('<strong>AutoPilot ▶️</strong><br><br>All automated functions are now active', 'success', 5000, true);
       }
     }
   };

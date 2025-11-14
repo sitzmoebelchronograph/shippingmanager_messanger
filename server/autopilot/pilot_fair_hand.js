@@ -11,7 +11,7 @@ const cache = require('../cache');
 const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
-const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
+const { auditLog, CATEGORIES, SOURCES } = require('../utils/audit-logger');
 
 /**
  * Automatically sends available COOP vessels to alliance members.

@@ -11,10 +11,7 @@ const gameapi = require('../gameapi');
 const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId, apiCall } = require('../utils/api');
-const config = require('../config');
 const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
-
-const DEBUG_MODE = config.DEBUG_MODE;
 
 /**
  * Auto send vessels to drydock based on hours_until_check threshold.
@@ -115,7 +112,7 @@ async function autoDrydockVessels(autopilotPaused, broadcastToUser, tryUpdateAll
     logger.debug(`[Auto-Drydock] Sending ${vesselIds.length} vessels to drydock (type: ${maintenanceType}, speed: ${speed})`);
 
     // Send to drydock
-    const result = await apiCall('/maintenance/do-major-drydock-maintenance-bulk', 'POST', {
+    await apiCall('/maintenance/do-major-drydock-maintenance-bulk', 'POST', {
       vessel_ids: JSON.stringify(vesselIds),
       speed,
       maintenance_type: maintenanceType

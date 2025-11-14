@@ -11,16 +11,8 @@ const gameapi = require('../gameapi');
 const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
-const config = require('../config');
 const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
-
-const DEBUG_MODE = config.DEBUG_MODE;
-
-/**
- * Lock to prevent concurrent vessel departure operations.
- * Prevents race conditions when autopilot loop and event-driven triggers run simultaneously.
- */
-let isDepartInProgress = false;
+const { saveHarborFee } = require('../utils/harbor-fee-store');
 
 /**
  * Calculates remaining demand at a port.
@@ -79,7 +71,7 @@ function getTotalCapacity(vessel) {
  */
 async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebuyAll, tryUpdateAllData) {
   // LOCK: Prevent concurrent departure operations (race condition protection)
-  if (isDepartInProgress) {
+  if (state.getLockStatus(userId, 'depart')) {
     logger.debug('[Depart] SKIPPED - Another departure operation is already in progress');
     return {
       success: false,
@@ -88,8 +80,13 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
     };
   }
 
-  // Set lock
-  isDepartInProgress = true;
+  // Set lock and broadcast to all clients
+  state.setLockStatus(userId, 'depart', true);
+  if (broadcastToUser) {
+    broadcastToUser(userId, 'autopilot_depart_start', {
+      vesselCount: vesselIds ? vesselIds.length : 'all'
+    });
+  }
   logger.debug('[Depart] Lock acquired');
 
   try {
@@ -103,11 +100,23 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
     if (bunker.fuel < settings.minFuelThreshold) {
       logger.warn(`[Depart] Skipping - insufficient fuel (${bunker.fuel.toFixed(1)}t < ${settings.minFuelThreshold}t minimum)`);
 
+      // Release lock (will also be done in finally, but doing it here ensures immediate unlock)
+      state.setLockStatus(userId, 'depart', false);
+
       // Notify user about insufficient fuel
       if (broadcastToUser) {
         broadcastToUser(userId, 'notification', {
           type: 'error',
           message: `<p><strong>Harbor master</strong></p><p>Cannot depart vessels - insufficient fuel!<br>Current: ${bunker.fuel.toFixed(1)}t | Required minimum: ${settings.minFuelThreshold}t</p>`
+        });
+
+        // Send updated lock status
+        broadcastToUser(userId, 'lock_status', {
+          depart: false,
+          fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+          co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+          repair: state.getLockStatus(userId, 'repair'),
+          bulkBuy: state.getLockStatus(userId, 'bulkBuy')
         });
       }
       return { success: false, reason: 'insufficient_fuel' };
@@ -137,11 +146,27 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
 
     if (harbourVessels.length === 0) {
       logger.debug('[Depart] No vessels to depart, skipping');
+
+      // Release lock (will also be done in finally, but doing it here ensures immediate unlock)
+      state.setLockStatus(userId, 'depart', false);
+
+      // Send updated lock status
+      if (broadcastToUser) {
+        broadcastToUser(userId, 'lock_status', {
+          depart: false,
+          fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+          co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+          repair: state.getLockStatus(userId, 'repair'),
+          bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+        });
+      }
+
       return { success: true, reason: 'no_vessels' };
     }
 
+    // Remove duplicate depart_start broadcast (already sent at function start)
     // Notify frontend that autopilot departure has started (locks depart button)
-    if (broadcastToUser) {
+    if (false && broadcastToUser) {
       broadcastToUser(userId, 'autopilot_depart_start', {
         vesselCount: harbourVessels.length
       });
@@ -173,8 +198,8 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
         if (broadcastToUser) {
           const bunkerState = await gameapi.fetchBunkerState();
 
-          // Send combined event with both succeeded and failed vessels
-          broadcastToUser(userId, 'vessels_depart_complete', {
+          // Send batch update event (does NOT unlock button)
+          broadcastToUser(userId, 'vessels_depart_batch', {
             succeeded: {
               count: departedVessels.length,
               vessels: departedVessels.slice(),
@@ -191,6 +216,10 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
               co2: bunkerState.co2
             }
           });
+
+          // Send complete bunker update with all fields (fuel, co2, cash, maxFuel, maxCO2)
+          const { broadcastBunkerUpdate } = require('../websocket');
+          broadcastBunkerUpdate(userId, bunkerState);
         }
 
         // Trigger auto-rebuy after each successful batch (if enabled)
@@ -230,6 +259,10 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
 
     logger.debug(`[Depart] Grouped vessels into ${Object.keys(vesselsByDestinationAndType).length} destination+type groups`);
 
+    // Fetch assigned ports ONCE at the start (static data that doesn't change during depart)
+    const assignedPorts = await gameapi.fetchAssignedPorts();
+    logger.debug(`[Depart] Fetched ${assignedPorts.length} assigned ports (cached for all vessels)`);
+
     // Process each destination+type group
     for (const key in vesselsByDestinationAndType) {
       const vessels = vesselsByDestinationAndType[key];
@@ -253,14 +286,12 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
       // Sort vessels by capacity (largest first)
       const sortedVessels = vessels.sort((a, b) => getTotalCapacity(b) - getTotalCapacity(a));
 
-      // Process each vessel individually with FRESH port data
+      // Process each vessel individually
       for (const vessel of sortedVessels) {
         const vesselCapacity = getTotalCapacity(vessel);
 
-        // CRITICAL: Fetch FRESH port data BEFORE EACH depart to avoid race conditions
-        // This prevents $0 revenue when vessels arrive at destination during the depart loop
-        const freshPorts = await gameapi.fetchAssignedPorts();
-        const port = freshPorts.find(p => p.code === destination);
+        // Use cached port data (assigned ports don't change during depart process)
+        const port = assignedPorts.find(p => p.code === destination);
 
         if (!port) {
           failedVessels.push({
@@ -420,7 +451,7 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
           const hasFeeCalculationBug = result.netIncome < 0;
 
           // Track vessels with excessive harbor fees (using settings threshold OR negative income)
-          const settings = state.getSettings(userId);
+          // (using settings from outer scope - already loaded on line 96)
           const harborFeeThreshold = settings.harborFeeWarningThreshold || 50; // Default 50%
           const feePercentage = result.income > 0 ? (result.harborFee / result.income) * 100 : 0;
           const isHighFee = feePercentage > harborFeeThreshold || hasFeeCalculationBug;
@@ -466,6 +497,11 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
           departedVessels.push(vesselData);
           allDepartedVessels.push(vesselData);
 
+          // Save harbor fee for vessel history display
+          // Use current timestamp (vessel_history created_at will match this closely)
+          const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          await saveHarborFee(userId, vessel.id, timestamp, result.harborFee);
+
         } catch (error) {
           logger.error(`[Depart] Failed to depart ${vessel.name}:`, error.message);
           failedVessels.push({
@@ -492,23 +528,69 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
     if (processedCount > 0) {
       await autoRebuyAll();
       await tryUpdateAllData();
+    }
 
-      // CRITICAL: Broadcast updated vessel counts after departure
-      // This ensures badge updates even if tryUpdateAllData() was locked
-      if (broadcastToUser) {
-        const updatedVessels = await gameapi.fetchVessels();
-        const readyToDepart = updatedVessels.filter(v => v.status === 'port' && !v.is_parked).length;
-        const atAnchor = updatedVessels.filter(v => v.status === 'anchor').length;
-        const pending = updatedVessels.filter(v => v.status === 'pending').length;
+    // CRITICAL: Send events in correct order:
+    // 1. Bunker update (so UI shows correct fuel/co2/cash)
+    // 2. Vessel count update (so badge shows correct counts)
+    // 3. THEN depart complete (unlocks button)
+    if (broadcastToUser && processedCount > 0) {
+      const finalBunkerState = await gameapi.fetchBunkerState();
+      const finalTotalIncome = allDepartedVessels.reduce((sum, v) => sum + v.income, 0);
+      const finalTotalFuelUsed = allDepartedVessels.reduce((sum, v) => sum + v.fuelUsed, 0);
+      const finalTotalCO2Used = allDepartedVessels.reduce((sum, v) => sum + v.co2Used, 0);
 
-        broadcastToUser(userId, 'vessel_count_update', {
-          readyToDepart,
-          atAnchor,
-          pending
-        });
+      // 1. Send complete bunker update with all fields (fuel, co2, cash, maxFuel, maxCO2)
+      const { broadcastBunkerUpdate } = require('../websocket');
+      broadcastBunkerUpdate(userId, finalBunkerState);
 
-        logger.debug(`[Depart] Vessel count broadcast: ${readyToDepart} ready, ${atAnchor} anchor, ${pending} pending`);
-      }
+      // 2. Broadcast updated vessel counts BEFORE unlocking button
+      // This ensures badge updates BEFORE user can click button again
+      const updatedVessels = await gameapi.fetchVessels();
+      const readyToDepart = updatedVessels.filter(v => v.status === 'port' && !v.is_parked).length;
+      const atAnchor = updatedVessels.filter(v => v.status === 'anchor').length;
+      const pending = updatedVessels.filter(v => v.status === 'pending').length;
+
+      broadcastToUser(userId, 'vessel_count_update', {
+        readyToDepart,
+        atAnchor,
+        pending
+      });
+
+      logger.debug(`[Depart] Vessel count broadcast: ${readyToDepart} ready, ${atAnchor} anchor, ${pending} pending`);
+
+      // 3. Send final completion event to unlock button (ONLY AFTER bunker and vessel count updates)
+      // Release lock BEFORE sending complete event (prevents race condition)
+      state.setLockStatus(userId, 'depart', false);
+
+      broadcastToUser(userId, 'vessels_depart_complete', {
+        succeeded: {
+          count: allDepartedVessels.length,
+          vessels: allDepartedVessels.slice(),
+          totalIncome: finalTotalIncome,
+          totalFuelUsed: finalTotalFuelUsed,
+          totalCO2Used: finalTotalCO2Used
+        },
+        failed: {
+          count: failedVessels.length,
+          vessels: []
+        },
+        bunker: {
+          fuel: finalBunkerState.fuel,
+          co2: finalBunkerState.co2
+        }
+      });
+
+      // Send updated lock status
+      broadcastToUser(userId, 'lock_status', {
+        depart: false,
+        fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+        co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+        repair: state.getLockStatus(userId, 'repair'),
+        bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+      });
+
+      logger.debug(`[Depart] ALL BATCHES COMPLETE - ${allDepartedVessels.length} total vessels departed - Button unlocked`);
     }
 
     // Calculate totals from ALL departed vessels (not just last batch)
@@ -534,10 +616,23 @@ async function departVessels(userId, vesselIds = null, broadcastToUser, autoRebu
 
   } catch (error) {
     logger.error('[Depart] Error:', error.message);
+
+    // Release lock and notify clients on error
+    state.setLockStatus(userId, 'depart', false);
+    if (broadcastToUser) {
+      broadcastToUser(userId, 'lock_status', {
+        depart: false,
+        fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+        co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+        repair: state.getLockStatus(userId, 'repair'),
+        bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+      });
+    }
+
     return { success: false, reason: 'error', error: error.message };
   } finally {
-    // ALWAYS release lock, even if error occurred
-    isDepartInProgress = false;
+    // ALWAYS release lock, even if error occurred or early return
+    state.setLockStatus(userId, 'depart', false);
     logger.debug('[Depart] Lock released');
   }
 }

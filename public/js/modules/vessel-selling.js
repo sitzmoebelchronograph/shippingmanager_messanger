@@ -283,7 +283,7 @@ async function displaySellVessels() {
                 return 0;
               });
 
-              return sorted.map((v, idx) => {
+              return sorted.map((v) => {
                 const canSelect = v.status !== 'route' && v.status !== 'enroute';
 
                 // Status: emoji only, text as mouseover
@@ -515,69 +515,6 @@ function getFuelEfficiencyClass(factor) {
 }
 
 /**
- * Toggles vessel selection for bulk sell
- */
-function toggleVesselSelection(modelKey, quantity, modelName, vesselIds, sellPrice, originalPrice) {
-  const index = selectedSellVessels.findIndex(v => v.modelKey === modelKey);
-
-  if (index > -1) {
-    selectedSellVessels.splice(index, 1);
-  } else {
-    selectedSellVessels.push({ modelKey, quantity, modelName, vesselIds, sellPrice, originalPrice });
-  }
-
-  const totalCount = selectedSellVessels.reduce((sum, item) => sum + item.quantity, 0);
-  const sellCartCountEl = document.getElementById('sellCartCount');
-  const sellCartBtn = document.getElementById('sellCartBtn');
-
-  if (sellCartCountEl) sellCartCountEl.textContent = totalCount;
-  if (sellCartBtn) {
-    if (selectedSellVessels.length > 0) {
-      sellCartBtn.classList.remove('hidden');
-    } else {
-      sellCartBtn.classList.add('hidden');
-    }
-  }
-
-  // Don't re-render - just update the select button text
-  updateSelectButtonState(modelKey, quantity);
-  saveSellCartToCache();
-}
-
-/**
- * Adds vessels to cart (increments quantity if already in cart)
- */
-function addVesselsToCart(modelKey, quantity, modelName, vesselIds, sellPrice, originalPrice) {
-  const index = selectedSellVessels.findIndex(v => v.modelKey === modelKey);
-
-  if (index > -1) {
-    // Add to existing quantity
-    selectedSellVessels[index].quantity += quantity;
-    selectedSellVessels[index].vesselIds = [...selectedSellVessels[index].vesselIds, ...vesselIds];
-  } else {
-    // Add new selection
-    selectedSellVessels.push({ modelKey, quantity, modelName, vesselIds, sellPrice, originalPrice });
-  }
-
-  const totalCount = selectedSellVessels.reduce((sum, item) => sum + item.quantity, 0);
-  const sellCartCountEl = document.getElementById('sellCartCount');
-  const sellCartBtn = document.getElementById('sellCartBtn');
-
-  if (sellCartCountEl) sellCartCountEl.textContent = totalCount;
-  if (sellCartBtn) {
-    if (selectedSellVessels.length > 0) {
-      sellCartBtn.classList.remove('hidden');
-    } else {
-      sellCartBtn.classList.add('hidden');
-    }
-  }
-
-  // Update the select button state
-  updateSelectButtonState(modelKey, selectedSellVessels[index > -1 ? index : selectedSellVessels.length - 1].quantity);
-  saveSellCartToCache();
-}
-
-/**
  * Updates vessel selection in cart (replaces quantity - used by cart controls)
  */
 function updateVesselSelectionInCart(modelKey, quantity, modelName, vesselIds, sellPrice, originalPrice) {
@@ -641,7 +578,7 @@ function removeVesselSelectionFromCart(modelKey) {
 /**
  * Updates the select button state without re-rendering
  */
-function updateSelectButtonState(modelKey, quantity) {
+function updateSelectButtonState(modelKey) {
   const cards = document.querySelectorAll('.vessel-card');
   cards.forEach(card => {
     const selectBtn = card.querySelector(`.vessel-select-btn[data-model-key="${modelKey}"]`);
@@ -720,9 +657,17 @@ async function sellVessels(modelKey, quantity, modelName, vesselIds, sellPrice, 
 
     if (!response.ok) throw new Error('Failed to sell vessels');
 
-    const data = await response.json();
+    await response.json();
 
     showSideNotification(`✅ Sold ${quantity}x ${modelName} for $${formatNumber(totalPrice)}`, 'success');
+
+    // Remove sold vessels from cart
+    const index = selectedSellVessels.findIndex(v => v.modelKey === modelKey);
+    if (index > -1) {
+      selectedSellVessels.splice(index, 1);
+      saveSellCartToCache();
+      updateBulkSellButton();
+    }
 
     // Reload vessels
     await loadUserVesselsForSale();

@@ -46,13 +46,11 @@ import {
   fetchUserSettings,
   departAllVessels as apiDepartAllVessels,
   fetchAcquirableVessels,
-  purchaseVessel as apiPurchaseVessel,
-  getMaintenanceCost,
-  doWearMaintenanceBulk
+  purchaseVessel as apiPurchaseVessel
 } from './api.js';
 import { showConfirmDialog } from './ui-dialogs.js';
-import { getCurrentBunkerState, updateCurrentCash, updateCurrentFuel, updateCurrentCO2 } from './bunker-management.js';
-import { updateBadge, updateButtonState, updateButtonTooltip, BADGE_COLORS } from './badge-manager.js';
+import { getCurrentBunkerState, updateCurrentCash } from './bunker-management.js';
+import { updateBadge, updateButtonState, updateButtonTooltip } from './badge-manager.js';
 
 /**
  * Load cart from localStorage (user-specific)
@@ -147,15 +145,80 @@ function refreshVesselCardsIfVisible() {
 window.refreshVesselCardsIfVisible = refreshVesselCardsIfVisible;
 
 /**
- * Tracks whether a departure operation is in progress (manual or autopilot).
- * When true, updateVesselCount() will not re-enable the depart button.
- * @type {boolean}
+ * Server-controlled lock states.
+ * IMPORTANT: These are READ-ONLY on client side. Only server can modify via WebSocket events.
+ * Client receives lock_status updates from server and must never set these directly.
+ *
+ * Lock Types:
+ * - depart: Vessel departure operation in progress
+ * - repair: Bulk repair operation in progress
+ * - bulkBuy: Bulk vessel purchase in progress
+ * - fuelPurchase: Fuel purchase operation in progress
+ * - co2Purchase: CO2 purchase operation in progress
+ *
+ * @type {Object}
  */
-let isDepartingInProgress = false;
-let isRepairingInProgress = false;
-let isBulkBuyingInProgress = false;
-let isFuelPurchasingInProgress = false;
-let isCo2PurchasingInProgress = false;
+const serverLockState = {
+  depart: false,
+  repair: false,
+  bulkBuy: false,
+  fuelPurchase: false,
+  co2Purchase: false,
+  drydock: false
+};
+
+/**
+ * Updates lock state from server WebSocket event.
+ * Called by chat.js when receiving 'lock_status' event.
+ * Updates internal state AND UI to reflect server lock status.
+ *
+ * @param {Object} locks - Lock state object from server
+ */
+export function updateLockStateFromServer(locks) {
+  if (locks.depart !== undefined) {
+    serverLockState.depart = locks.depart;
+    // Update depart button UI based on server lock state and vessel count
+    const countBadge = document.querySelector('.map-icon-item[data-action="departAll"] .map-icon-badge');
+    const hasVessels = countBadge && !countBadge.classList.contains('hidden') && parseInt(countBadge.textContent) > 0;
+    updateButtonState('departAll', locks.depart || !hasVessels);
+  }
+
+  if (locks.repair !== undefined) {
+    serverLockState.repair = locks.repair;
+    updateButtonState('repairAll', locks.repair);
+  }
+
+  if (locks.bulkBuy !== undefined) {
+    serverLockState.bulkBuy = locks.bulkBuy;
+    const cartBtn = document.getElementById('cartBtn');
+    if (cartBtn) {
+      cartBtn.disabled = locks.bulkBuy;
+    }
+  }
+
+  if (locks.fuelPurchase !== undefined) {
+    serverLockState.fuelPurchase = locks.fuelPurchase;
+    const fuelBtn = document.getElementById('fuelBtn');
+    if (fuelBtn) {
+      fuelBtn.disabled = locks.fuelPurchase;
+    }
+  }
+
+  if (locks.co2Purchase !== undefined) {
+    serverLockState.co2Purchase = locks.co2Purchase;
+    const co2Btn = document.getElementById('co2Btn');
+    if (co2Btn) {
+      co2Btn.disabled = locks.co2Purchase;
+    }
+  }
+
+  if (locks.drydock !== undefined) {
+    serverLockState.drydock = locks.drydock;
+    updateButtonState('drydockAll', locks.drydock);
+  }
+
+  console.log('[Lock State] Updated from server:', serverLockState);
+}
 
 /**
  * Updates vessel count badges and status displays for different vessel states.
@@ -222,7 +285,7 @@ export async function updateVesselCount() {
 
     // Update depart badge and button
     updateBadge('vesselCount', readyToDepart, readyToDepart > 0, 'BLUE');
-    updateButtonState('departAll', readyToDepart === 0 || isDepartingInProgress);
+    updateButtonState('departAll', readyToDepart === 0 || serverLockState.depart);
     updateButtonTooltip('departAll',
       readyToDepart > 0
         ? `Depart all ${readyToDepart} vessel${readyToDepart === 1 ? '' : 's'} from harbor`
@@ -320,9 +383,8 @@ export async function updateVesselCount() {
  * // Shows: "5 vessels departed! Fuel: 150t, CO2: 45t, Net income: $125,000"
  */
 export async function departAllVessels() {
-  // Mark departure as in progress and disable button
-  isDepartingInProgress = true;
-  updateButtonState('departAll', true);
+  // Server will handle lock checking - no client-side lock check needed
+  // Button lock is controlled by server via WebSocket lock_status events
 
   try {
     const data = await apiDepartAllVessels();
@@ -330,22 +392,21 @@ export async function departAllVessels() {
     // Backend broadcasts notification to ALL clients via WebSocket
     // No need to show notification here - all clients will receive it
 
-    // Check if departure failed (e.g., insufficient fuel)
-    // Re-enable button immediately so user can retry after fixing the issue
-    if (data.success === false) {
-      isDepartingInProgress = false;
-      updateButtonState('departAll', false);
-      if (window.DEBUG_MODE) console.log('[Depart All] Departure failed:', data.reason);
-    }
+    // Server will broadcast lock_status to unlock button
+    // No client-side state manipulation needed
 
-    // If successful, button stays disabled until WebSocket 'vessels_depart_complete' message
-    // unlockDepartButton() will be called by the WebSocket handler
+    if (window.DEBUG_MODE) {
+      if (data.success === false) {
+        console.log('[Depart All] Departure failed:', data.reason);
+      } else {
+        console.log('[Depart All] Departure succeeded');
+      }
+    }
 
   } catch (error) {
     // Network errors or other exceptions
     console.error('[Depart All] Error:', error);
-    isDepartingInProgress = false;
-    updateButtonState('departAll', false);
+    // Server will handle unlock via lock_status event
   }
 }
 
@@ -719,7 +780,7 @@ async function showRepairAndDrydockDialog(settings, repairCount, drydockCount, s
               body: JSON.stringify({ threshold: settings.maintenanceThreshold })
             });
 
-            const data = await response.json();
+            await response.json();
 
             // Re-enable button
             updateButtonState('repairAll', false);
@@ -1102,10 +1163,6 @@ export async function repairAllVessels(settings) {
 
   if (vesselsNeedingRepair === 0) return;
 
-  // Store original badge count
-  const originalBadgeCount = repairCountBadge ? repairCountBadge.textContent : '0';
-  const originalBadgeVisible = repairCountBadge ? !repairCountBadge.classList.contains('hidden') : false;
-
   try {
     // Fetch vessel data and repair costs from backend
     // Disable button during preview
@@ -1140,7 +1197,7 @@ export async function repairAllVessels(settings) {
       body: JSON.stringify({ threshold: settings.maintenanceThreshold })
     });
 
-    const data = await response.json();
+    await response.json();
 
     // Backend broadcasts notification to ALL clients via WebSocket
     // No need to show notification here - all clients will receive it
@@ -1323,7 +1380,6 @@ export function showPendingVessels(pendingVessels) {
 
   // Load initial batch only
   const initialBatch = filteredVessels.slice(0, INITIAL_LOAD_COUNT);
-  let loadedCount = 0;
 
   initialBatch.forEach(vessel => {
     const imageUrl = `/api/vessel-image/${vessel.type}`;
@@ -1975,7 +2031,6 @@ export async function purchaseSingleVessel(vessel, quantity = 1) {
   if (!confirmed) return;
 
   let successCount = 0;
-  let failCount = 0;
   const purchasedVessels = [];
 
   for (let i = 0; i < quantity; i++) {
@@ -1983,7 +2038,6 @@ export async function purchaseSingleVessel(vessel, quantity = 1) {
       const data = await apiPurchaseVessel(vessel.id, vessel.name, vessel.antifouling, true); // silent=true
 
       if (data.error) {
-        failCount++;
         if (data.error === 'vessel_limit_reached') {
           const msg = successCount > 0
             ? `🚢 <strong>Vessel limit reached! Purchased ${successCount} vessel(s), cannot buy more.</strong>`
@@ -2014,7 +2068,6 @@ export async function purchaseSingleVessel(vessel, quantity = 1) {
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
     } catch (error) {
-      failCount++;
       console.error('Error purchasing vessel:', error);
       showSideNotification(`🚢 <strong>Network error purchasing ${vessel.name}</strong>`, 'error', null, true);
     }
@@ -2104,7 +2157,6 @@ export async function purchaseBulk() {
   cartBtn.textContent = 'Purchasing...';
 
   let successCount = 0;
-  let failCount = 0;
   const purchasedVessels = [];
 
   for (let i = 0; i < selectedVessels.length; i++) {
@@ -2115,7 +2167,6 @@ export async function purchaseBulk() {
         const data = await apiPurchaseVessel(item.vessel.id, item.vessel.name, item.vessel.antifouling, true); // silent=true
 
         if (data.error) {
-          failCount++;
           console.error(`Failed to purchase ${item.vessel.name}:`, data.error);
 
           if (data.error === 'vessel_limit_reached') {
@@ -2146,7 +2197,6 @@ export async function purchaseBulk() {
           }
         }
       } catch (error) {
-        failCount++;
         console.error(`Error purchasing ${item.vessel.name}:`, error);
         showSideNotification(`🚢 <strong>Network error purchasing ${item.vessel.name}</strong>`, 'error', null, true);
       }
@@ -2213,132 +2263,165 @@ export function getVesselFilter() {
 /**
  * Locks the depart button when autopilot or manual departure starts.
  * Called by WebSocket handler when 'autopilot_depart_start' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function lockDepartButton() {
-  isDepartingInProgress = true;
   updateButtonState('departAll', true);
-  if (window.DEBUG_MODE) console.log('[Depart Button] Locked - departure in progress');
+  if (window.DEBUG_MODE) console.log('[Depart Button] Locked (UI only) - departure in progress');
 }
 
 /**
  * Unlocks the depart button when departure process completes.
  * Called by WebSocket handler when 'vessels_depart_complete' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function unlockDepartButton() {
-  isDepartingInProgress = false;
   // Check if there are vessels ready to depart
   const countBadge = document.querySelector('.map-icon-item[data-action="departAll"] .map-icon-badge');
   const hasVessels = countBadge && !countBadge.classList.contains('hidden') && parseInt(countBadge.textContent) > 0;
   updateButtonState('departAll', !hasVessels);
-  if (window.DEBUG_MODE) console.log('[Depart Button] Unlocked - departure complete');
+  if (window.DEBUG_MODE) console.log('[Depart Button] Unlocked (UI only) - departure complete');
+}
+
+/**
+ * Returns whether a departure operation is currently in progress.
+ * Used to prevent button state changes during departure.
+ * Returns server-controlled lock state (READ-ONLY).
+ * @global
+ * @returns {boolean} True if departure is in progress
+ */
+export function isDepartInProgress() {
+  return serverLockState.depart;
 }
 
 /**
  * Locks the repair button when repair process starts.
  * Called by WebSocket handler when 'repair_start' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function lockRepairButton() {
-  isRepairingInProgress = true;
   updateButtonState('repairAll', true);
-  if (window.DEBUG_MODE) console.log('[Repair Button] Locked - repair in progress');
+  if (window.DEBUG_MODE) console.log('[Repair Button] Locked (UI only) - repair in progress');
 }
 
 /**
  * Unlocks the repair button when repair process completes.
  * Called by WebSocket handler when 'repair_complete' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function unlockRepairButton() {
-  isRepairingInProgress = false;
   updateButtonState('repairAll', false);
-  if (window.DEBUG_MODE) console.log('[Repair Button] Unlocked - repair complete');
+  if (window.DEBUG_MODE) console.log('[Repair Button] Unlocked (UI only) - repair complete');
 }
 
 /**
  * Locks the bulk buy (cart) button when bulk purchase starts.
  * Called by WebSocket handler when 'bulk_buy_start' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function lockBulkBuyButton() {
-  isBulkBuyingInProgress = true;
   const cartBtn = document.getElementById('cartBtn');
   if (cartBtn) {
     cartBtn.disabled = true;
   }
-  if (window.DEBUG_MODE) console.log('[Bulk Buy Button] Locked - bulk purchase in progress');
+  if (window.DEBUG_MODE) console.log('[Bulk Buy Button] Locked (UI only) - bulk purchase in progress');
 }
 
 /**
  * Unlocks the bulk buy (cart) button when bulk purchase completes.
  * Called by WebSocket handler when 'bulk_buy_complete' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function unlockBulkBuyButton() {
-  isBulkBuyingInProgress = false;
   const cartBtn = document.getElementById('cartBtn');
   if (cartBtn) {
     cartBtn.disabled = false;
   }
-  if (window.DEBUG_MODE) console.log('[Bulk Buy Button] Unlocked - bulk purchase complete');
+  if (window.DEBUG_MODE) console.log('[Bulk Buy Button] Unlocked (UI only) - bulk purchase complete');
 }
 
 /**
  * Locks the fuel purchase button.
  * Called by WebSocket handler when 'fuel_purchase_start' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function lockFuelButton() {
-  isFuelPurchasingInProgress = true;
   const fuelBtn = document.getElementById('fuelBtn');
   if (fuelBtn) {
     fuelBtn.disabled = true;
   }
-  if (window.DEBUG_MODE) console.log('[Fuel Button] Locked - fuel purchase in progress');
+  if (window.DEBUG_MODE) console.log('[Fuel Button] Locked (UI only) - fuel purchase in progress');
 }
 
 /**
  * Unlocks the fuel purchase button.
  * Called by WebSocket handler when 'fuel_purchase_complete' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function unlockFuelButton() {
-  isFuelPurchasingInProgress = false;
   const fuelBtn = document.getElementById('fuelBtn');
   if (fuelBtn) {
     fuelBtn.disabled = false;
   }
-  if (window.DEBUG_MODE) console.log('[Fuel Button] Unlocked - fuel purchase complete');
+  if (window.DEBUG_MODE) console.log('[Fuel Button] Unlocked (UI only) - fuel purchase complete');
 }
 
 /**
  * Locks the CO2 purchase button.
  * Called by WebSocket handler when 'co2_purchase_start' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function lockCo2Button() {
-  isCo2PurchasingInProgress = true;
   const co2Btn = document.getElementById('co2Btn');
   if (co2Btn) {
     co2Btn.disabled = true;
   }
-  if (window.DEBUG_MODE) console.log('[CO2 Button] Locked - CO2 purchase in progress');
+  if (window.DEBUG_MODE) console.log('[CO2 Button] Locked (UI only) - CO2 purchase in progress');
 }
 
 /**
  * Unlocks the CO2 purchase button.
  * Called by WebSocket handler when 'co2_purchase_complete' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
  * @global
  */
 export function unlockCo2Button() {
-  isCo2PurchasingInProgress = false;
   const co2Btn = document.getElementById('co2Btn');
   if (co2Btn) {
     co2Btn.disabled = false;
   }
-  if (window.DEBUG_MODE) console.log('[CO2 Button] Unlocked - CO2 purchase complete');
+  if (window.DEBUG_MODE) console.log('[CO2 Button] Unlocked (UI only) - CO2 purchase complete');
+}
+
+/**
+ * Locks the drydock button when drydock process starts.
+ * Called by WebSocket handler when 'drydock_start' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
+ * @global
+ */
+export function lockDrydockButton() {
+  updateButtonState('drydockAll', true);
+  if (window.DEBUG_MODE) console.log('[Drydock Button] Locked (UI only) - drydock in progress');
+}
+
+/**
+ * Unlocks the drydock button when drydock process completes.
+ * Called by WebSocket handler when 'drydock_complete' is received.
+ * UI-ONLY function - state is managed by server via lock_status events.
+ * @global
+ */
+export function unlockDrydockButton() {
+  updateButtonState('drydockAll', false);
+  if (window.DEBUG_MODE) console.log('[Drydock Button] Unlocked (UI only) - drydock complete');
 }
 
 // ===== NEW FILTER SYSTEM =====
@@ -2717,8 +2800,6 @@ function preloadCommonVesselImages() {
  * Create a vessel card element with image caching
  */
 function createVesselCard(vessel) {
-  const selectedItem = selectedVessels.find(v => v.vessel.id === vessel.id);
-  const isSelected = !!selectedItem;
   const imageUrl = `/api/vessel-image/${vessel.type}`;
 
   // Trigger preload for this vessel type if not already cached
@@ -2841,8 +2922,6 @@ let priceSort = 'asc'; // 'asc' or 'desc'
 function areFiltersDefault() {
   const vesselTypeChecked = document.querySelectorAll('input[name="vesselType"]:checked').length;
   const vesselTypeTotal = document.querySelectorAll('input[name="vesselType"]').length;
-
-  const specialChecked = document.querySelectorAll('input[name="special"]:checked').length;
 
   const engineSelect = document.getElementById('engineType');
   const allEnginesSelected = engineSelect.value === 'all';

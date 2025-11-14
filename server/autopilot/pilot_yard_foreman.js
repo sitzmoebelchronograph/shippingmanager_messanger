@@ -11,10 +11,7 @@ const gameapi = require('../gameapi');
 const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId } = require('../utils/api');
-const config = require('../config');
 const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
-
-const DEBUG_MODE = config.DEBUG_MODE;
 
 /**
  * Auto repair vessels for a single user based on wear threshold.

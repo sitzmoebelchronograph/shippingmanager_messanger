@@ -27,16 +27,6 @@ export function initializeMapIconBar() {
     const action = item.dataset.action;
 
     item.addEventListener('click', () => {
-      // Close any open vessel/port panels before opening new windows
-      if (window.harborMap) {
-        if (typeof window.harborMap.closeVesselPanel === 'function') {
-          window.harborMap.closeVesselPanel();
-        }
-        if (typeof window.harborMap.closePortPanel === 'function') {
-          window.harborMap.closePortPanel();
-        }
-      }
-
       // Call the appropriate function based on action
       handleIconAction(action);
     });

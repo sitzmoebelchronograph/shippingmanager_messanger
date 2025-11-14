@@ -16,11 +16,8 @@
 const gameapi = require('./gameapi');
 const state = require('./state');
 const cache = require('./cache');
-const config = require('./config');
 const { getUserId, apiCall } = require('./utils/api');
 const logger = require('./utils/logger');
-const path = require('path');
-const fs = require('fs');
 
 // Import pilot modules
 const { autoRebuyFuel } = require('./autopilot/pilot_barrel_boss');
@@ -32,8 +29,6 @@ const { autoCampaignRenewal } = require('./autopilot/pilot_reputation_chief');
 const { autoCoop } = require('./autopilot/pilot_fair_hand');
 const { autoAnchorPointPurchase, setBroadcastFunction: setHarbormasterBroadcast } = require('./autopilot/pilot_harbormaster');
 const { autoNegotiateHijacking } = require('./autopilot/pilot_captain_blackbeard');
-
-const DEBUG_MODE = config.DEBUG_MODE;
 
 // WebSocket broadcasting function (injected by websocket.js)
 let broadcastToUser = null;
@@ -653,7 +648,6 @@ function getCachedCapacity(vessel) {
 // ============================================================================
 
 const LOOP_INTERVAL = 60000;  // 60 seconds
-let previousPrices = null;
 
 /**
  * Main event-driven autopilot loop.
@@ -749,7 +743,7 @@ async function mainEventLoop() {
 
       const anchorNextBuild = gameSettings.anchor_next_build || null;
       const now = Math.floor(Date.now() / 1000);
-      const settings = state.getSettings(userId);
+      // (using settings from outer scope - already loaded on line 669)
       const pendingAnchorPoints = (anchorNextBuild && anchorNextBuild > now) ? settings.pendingAnchorPoints : 0;
 
       const headerUpdate = {

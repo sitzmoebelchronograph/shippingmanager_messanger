@@ -48,9 +48,6 @@ const logger = require('./utils/logger');
 const fs = require('fs');
 const path = require('path');
 
-// Debug mode - controlled by server/config.js
-const DEBUG_MODE = config.DEBUG_MODE;
-
 /**
  * Get cache file path for processed DM message IDs for a specific user
  * @param {string|number} userId - User ID
@@ -248,7 +245,7 @@ async function getCachedMessengerChats() {
 
   // Cache stale or empty - fetch fresh data
   try {
-    const { apiCall } = require('./utils/api');
+    // (using apiCall imported at top of file)
     const data = await apiCall('/messenger/get-chats', 'POST', {});
     const chats = data?.data;
 
@@ -376,10 +373,10 @@ async function getCachedHijackingCase(caseId) {
  *
  * @example
  * const server = createHttpsServer(app);
- * const wss = initWebSocket(server);
+ * const wss = initWebSocket();
  * // WebSocket server now listening for upgrade requests
  */
-function initWebSocket(server) {
+function initWebSocket() {
   wss = new WebSocket.Server({ noServer: true });
 
   wss.on('connection', async (ws) => {
@@ -404,6 +401,13 @@ function initWebSocket(server) {
         ws.send(JSON.stringify({
           type: 'autopilot_status',
           data: { paused: autopilot.isAutopilotPaused() }
+        }));
+
+        // Send current lock statuses (prevents stuck locks after page reload/server restart)
+        const locks = state.getAllLocks(userId);
+        ws.send(JSON.stringify({
+          type: 'lock_status',
+          data: locks
         }));
 
         // Send ALL cached data from state
@@ -439,7 +443,31 @@ function initWebSocket(server) {
           }
 
           // Vessel counts
-          const vesselCounts = state.getVesselCounts(userId);
+          let vesselCounts = state.getVesselCounts(userId);
+          if (!vesselCounts) {
+            // No cached data - fetch fresh from game API
+            try {
+              const vesselsResponse = await apiCall('/game/index', 'GET');
+              if (vesselsResponse?.vessels) {
+                const readyToDepart = vesselsResponse.vessels.filter(v =>
+                  v.status === 'ready' && v.maintenance > 0
+                ).length;
+                const atAnchor = vesselsResponse.vessels.filter(v =>
+                  v.status === 'anchor'
+                ).length;
+                const pending = vesselsResponse.vessels.filter(v =>
+                  v.status === 'pending'
+                ).length;
+
+                vesselCounts = { readyToDepart, atAnchor, pending };
+                state.updateVesselCounts(userId, vesselCounts);
+                logger.debug('[WebSocket] Vessel counts fetched from API');
+              }
+            } catch (error) {
+              logger.error('[WebSocket] Failed to fetch vessel counts:', error.message);
+            }
+          }
+
           if (vesselCounts) {
             ws.send(JSON.stringify({
               type: 'vessel_count_update',
@@ -449,7 +477,28 @@ function initWebSocket(server) {
           }
 
           // Repair count
-          const repairCount = state.getRepairCount(userId);
+          let repairCount = state.getRepairCount(userId);
+          if (repairCount === undefined) {
+            // No cached data - fetch fresh from game API
+            try {
+              const vesselsResponse = await apiCall('/game/index', 'GET');
+              if (vesselsResponse?.vessels) {
+                const { getUserSettings } = require('./utils/api');
+                const userSettings = getUserSettings();
+                const maintenanceThreshold = userSettings?.maintenanceThreshold;
+                if (maintenanceThreshold !== undefined) {
+                  repairCount = vesselsResponse.vessels.filter(v =>
+                    v.status === 'ready' && v.maintenance < maintenanceThreshold
+                  ).length;
+                  state.updateRepairCount(userId, repairCount);
+                  logger.debug('[WebSocket] Repair count fetched from API');
+                }
+              }
+            } catch (error) {
+              logger.error('[WebSocket] Failed to fetch repair count:', error.message);
+            }
+          }
+
           if (repairCount !== undefined) {
             ws.send(JSON.stringify({
               type: 'repair_count_update',
@@ -459,7 +508,28 @@ function initWebSocket(server) {
           }
 
           // Drydock count
-          const drydockCount = state.getDrydockCount(userId);
+          let drydockCount = state.getDrydockCount(userId);
+          if (drydockCount === undefined) {
+            // No cached data - fetch fresh from game API
+            try {
+              const vesselsResponse = await apiCall('/game/index', 'GET');
+              if (vesselsResponse?.vessels) {
+                const { getUserSettings } = require('./utils/api');
+                const userSettings = getUserSettings();
+                const drydockThreshold = userSettings?.autoDrydockThreshold;
+                if (drydockThreshold !== undefined) {
+                  drydockCount = vesselsResponse.vessels.filter(v =>
+                    v.status === 'ready' && v.age >= drydockThreshold
+                  ).length;
+                  state.updateDrydockCount(userId, drydockCount);
+                  logger.debug('[WebSocket] Drydock count fetched from API');
+                }
+              }
+            } catch (error) {
+              logger.error('[WebSocket] Failed to fetch drydock count:', error.message);
+            }
+          }
+
           if (drydockCount !== undefined) {
             ws.send(JSON.stringify({
               type: 'drydock_count_update',
@@ -469,7 +539,24 @@ function initWebSocket(server) {
           }
 
           // Campaign status
-          const campaignStatus = state.getCampaignStatus(userId);
+          let campaignStatus = state.getCampaignStatus(userId);
+          if (!campaignStatus) {
+            // No cached data - fetch fresh from game API
+            try {
+              const campaignsResponse = await apiCall('/campaign/get-campaign', 'POST', {});
+              if (campaignsResponse?.data?.campaigns) {
+                const campaigns = campaignsResponse.data.campaigns;
+                const activeCount = campaigns.filter(c => c.status === 'active').length;
+                const active = campaigns.filter(c => c.status === 'active');
+                campaignStatus = { activeCount, active };
+                state.updateCampaignStatus(userId, campaignStatus);
+                logger.debug('[WebSocket] Campaign status fetched from API');
+              }
+            } catch (error) {
+              logger.error('[WebSocket] Failed to fetch campaign status:', error.message);
+            }
+          }
+
           if (campaignStatus) {
             ws.send(JSON.stringify({
               type: 'campaign_status_update',
@@ -479,7 +566,7 @@ function initWebSocket(server) {
           }
 
           // COOP data - alliance-dependent
-          const { getAllianceId } = require('./utils/api');
+          // (using getAllianceId imported at top of file)
           const allianceId = getAllianceId();
 
           if (!allianceId) {
@@ -532,7 +619,33 @@ function initWebSocket(server) {
 
           // Header data (stock, anchor) - alliance-dependent
           // Send header data (stock + anchor)
-          const headerData = state.getHeaderData(userId);
+          let headerData = state.getHeaderData(userId);
+          if (!headerData) {
+            // No cached data - fetch fresh from game API
+            try {
+              const userSettingsResponse = await apiCall('/user/get-user-settings', 'GET');
+              if (userSettingsResponse?.user?.stock && userSettingsResponse?.user?.anchorpoints) {
+                const stock = userSettingsResponse.user.stock;
+                const anchor = userSettingsResponse.user.anchorpoints;
+                headerData = {
+                  stock: {
+                    value: stock.value,
+                    trend: stock.trend,
+                    ipo: stock.ipo
+                  },
+                  anchor: {
+                    available: anchor.available,
+                    max: anchor.max
+                  }
+                };
+                state.updateHeaderData(userId, headerData);
+                logger.debug('[WebSocket] Header data fetched from API');
+              }
+            } catch (error) {
+              logger.error('[WebSocket] Failed to fetch header data:', error.message);
+            }
+          }
+
           if (headerData) {
             // If user NOT in alliance, clear stock but keep anchor (anchor is NOT alliance-dependent)
             if (!allianceId) {
@@ -1018,7 +1131,8 @@ async function performMessengerRefresh() {
   isMessengerRefreshing = true;
 
   try {
-    const { apiCall, getUserId } = require('./utils/api');
+    // (using apiCall and getUserId from utils/api - imported at top of file via getChatFeed, getCompanyName, getAllianceId, apiCall)
+    const { getUserId } = require('./utils/api');
     const userId = getUserId();
     if (!userId) {
       logger.error('[Messenger Refresh] No user ID available');
@@ -1272,7 +1386,7 @@ async function performHijackingRefresh() {
   isHijackingRefreshing = true;
 
   try {
-    const { apiCall } = require('./utils/api');
+    // (using apiCall imported at top of file)
 
     // Fetch messenger chats (using shared cache to reduce API calls)
     const allChats = await getCachedMessengerChats();

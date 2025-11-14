@@ -36,21 +36,11 @@ const { apiCall, apiCallWithRetry, getUserId } = require('../utils/api');
 const gameapi = require('../gameapi');
 const { broadcastToUser } = require('../websocket');
 const fs = require('fs').promises;
-const path = require('path');
-const os = require('os');
 const logger = require('../utils/logger');
 const autopilot = require('../autopilot');
 const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
 
 const router = express.Router();
-
-// Auto-depart log file path - use APPDATA when running as .exe
-const { getAppDataDir } = require('../config');
-const LOG_DIR = process.pkg
-  ? path.join(getAppDataDir(), 'ShippingManagerCoPilot', 'userdata', 'logs')
-  : path.join(__dirname, '../..', 'userdata', 'logs');
-
-const AUTO_DEPART_LOG = path.join(LOG_DIR, 'auto-depart.log');
 
 /** GET /api/vessel/get-vessels - Retrieves all vessels currently in harbor. Uses /game/index endpoint to get complete vessel list with status, cargo, maintenance needs, etc. Also caches company_type in local settings. */
 router.get('/vessel/get-vessels', async (req, res) => {
@@ -162,15 +152,31 @@ router.post('/bunker/purchase-fuel', express.json(), async (req, res) => {
     return res.status(400).json({ error: 'Invalid amount' });
   }
 
-  // Broadcast fuel purchase start to lock buttons on all clients
   const userId = getUserId();
+  const state = require('../state');
+
+  // LOCK: Prevent concurrent fuel purchases (race condition protection)
+  if (state.getLockStatus(userId, 'fuelPurchase')) {
+    logger.debug('[Fuel Purchase] SKIPPED - Another fuel purchase is already in progress');
+    return res.status(409).json({ error: 'Fuel purchase already in progress' });
+  }
+
+  // Set lock and broadcast to all clients
+  state.setLockStatus(userId, 'fuelPurchase', true);
   if (userId) {
     broadcastToUser(userId, 'fuel_purchase_start', {});
+    broadcastToUser(userId, 'lock_status', {
+      depart: state.getLockStatus(userId, 'depart'),
+      fuelPurchase: true,
+      co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+      repair: state.getLockStatus(userId, 'repair'),
+      bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+    });
   }
+  logger.debug('[Fuel Purchase] Lock acquired');
 
   try {
     // Get cash BEFORE purchase to calculate actual cost
-    const state = require('../state');
     const bunkerBefore = state.getBunkerState(userId);
     const cashBefore = bunkerBefore ? bunkerBefore.cash : 0;
 
@@ -179,16 +185,15 @@ router.post('/bunker/purchase-fuel', express.json(), async (req, res) => {
 
     // Broadcast bunker update to all clients (manual purchase)
     if (userId && data.user) {
-      // API doesn't return capacity fields - use cached values from autopilot
-      const cachedCapacity = autopilot.getCachedCapacity(userId);
+      // API doesn't return capacity fields - use values from state
       const { broadcastBunkerUpdate } = require('../websocket');
 
       broadcastBunkerUpdate(userId, {
         fuel: data.user.fuel / 1000,
         co2: (data.user.co2 || data.user.co2_certificate) / 1000,
         cash: data.user.cash,
-        maxFuel: cachedCapacity.maxFuel,
-        maxCO2: cachedCapacity.maxCO2
+        maxFuel: bunkerBefore.maxFuel,
+        maxCO2: bunkerBefore.maxCO2
       });
 
       // Calculate ACTUAL cost from API response (includes discounts!)
@@ -199,7 +204,7 @@ router.post('/bunker/purchase-fuel', express.json(), async (req, res) => {
       logger.info(`[Manual Fuel Purchase] User bought ${amount}t @ $${actualPricePerTon}/t = $${actualCost.toLocaleString('en-US')} (Cash before: $${cashBefore.toLocaleString('en-US')} Cash after: $${cashAfter.toLocaleString('en-US')})`);
 
       // AUDIT LOG: Manual fuel purchase
-      const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
+      // (using audit-logger imported at top of file)
 
       // Validate data - FAIL LOUD if missing
       if (!data.user || data.user.fuel === undefined || data.user.fuel === null) {
@@ -248,32 +253,56 @@ router.post('/bunker/purchase-fuel', express.json(), async (req, res) => {
         `
       });
 
-      // Broadcast fuel purchase complete to unlock buttons
-      broadcastToUser(userId, 'fuel_purchase_complete', { amount });
-
       // Trigger immediate data update
       await autopilot.tryUpdateAllData();
     }
+
+    // Release lock BEFORE sending response
+    state.setLockStatus(userId, 'fuelPurchase', false);
+    logger.debug('[Fuel Purchase] Lock released');
+
+    // Broadcast fuel purchase complete and updated lock status
+    broadcastToUser(userId, 'fuel_purchase_complete', { amount });
+    broadcastToUser(userId, 'lock_status', {
+      depart: state.getLockStatus(userId, 'depart'),
+      fuelPurchase: false,
+      co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+      repair: state.getLockStatus(userId, 'repair'),
+      bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+    });
 
     res.json(data);
   } catch (error) {
     logger.error('Error purchasing fuel:', error);
 
+    // Release lock on error
+    state.setLockStatus(userId, 'fuelPurchase', false);
+
     // Broadcast error notification to all clients
-    const errorUserId = getUserId();
-    if (errorUserId) {
+    if (userId) {
       // Escape error message to prevent XSS
       const safeErrorMessage = validator.escape(error.message || 'Unknown error');
-      broadcastToUser(errorUserId, 'user_action_notification', {
+      broadcastToUser(userId, 'user_action_notification', {
         type: 'error',
         message: `⛽ <strong>Purchase Failed</strong><br><br>${safeErrorMessage}`
       });
 
-      // Broadcast fuel purchase complete to unlock buttons even on error
-      broadcastToUser(errorUserId, 'fuel_purchase_complete', { amount: 0 });
+      // Broadcast fuel purchase complete and updated lock status
+      broadcastToUser(userId, 'fuel_purchase_complete', { amount: 0 });
+      broadcastToUser(userId, 'lock_status', {
+        depart: state.getLockStatus(userId, 'depart'),
+        fuelPurchase: false,
+        co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+        repair: state.getLockStatus(userId, 'repair'),
+        bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+      });
     }
 
     res.status(500).json({ error: 'Failed to purchase fuel' });
+  } finally {
+    // ALWAYS release lock, even if error occurred
+    state.setLockStatus(userId, 'fuelPurchase', false);
+    logger.debug('[Fuel Purchase] Lock released (finally)');
   }
 });
 
@@ -288,15 +317,31 @@ router.post('/bunker/purchase-co2', express.json(), async (req, res) => {
     return res.status(400).json({ error: 'Invalid amount' });
   }
 
-  // Broadcast CO2 purchase start to lock buttons on all clients
   const userId = getUserId();
+  const state = require('../state');
+
+  // LOCK: Prevent concurrent CO2 purchases (race condition protection)
+  if (state.getLockStatus(userId, 'co2Purchase')) {
+    logger.debug('[CO2 Purchase] SKIPPED - Another CO2 purchase is already in progress');
+    return res.status(409).json({ error: 'CO2 purchase already in progress' });
+  }
+
+  // Set lock and broadcast to all clients
+  state.setLockStatus(userId, 'co2Purchase', true);
   if (userId) {
     broadcastToUser(userId, 'co2_purchase_start', {});
+    broadcastToUser(userId, 'lock_status', {
+      depart: state.getLockStatus(userId, 'depart'),
+      fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+      co2Purchase: true,
+      repair: state.getLockStatus(userId, 'repair'),
+      bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+    });
   }
+  logger.debug('[CO2 Purchase] Lock acquired');
 
   try {
     // Get cash BEFORE purchase to calculate actual cost
-    const state = require('../state');
     const bunkerBefore = state.getBunkerState(userId);
     const cashBefore = bunkerBefore ? bunkerBefore.cash : 0;
 
@@ -305,16 +350,15 @@ router.post('/bunker/purchase-co2', express.json(), async (req, res) => {
 
     // Broadcast bunker update to all clients (manual purchase)
     if (userId && data.user) {
-      // API doesn't return capacity fields - use cached values from autopilot
-      const cachedCapacity = autopilot.getCachedCapacity(userId);
+      // API doesn't return capacity fields - use values from state
       const { broadcastBunkerUpdate } = require('../websocket');
 
       broadcastBunkerUpdate(userId, {
         fuel: data.user.fuel / 1000,
         co2: (data.user.co2 || data.user.co2_certificate) / 1000,
         cash: data.user.cash,
-        maxFuel: cachedCapacity.maxFuel,
-        maxCO2: cachedCapacity.maxCO2
+        maxFuel: bunkerBefore.maxFuel,
+        maxCO2: bunkerBefore.maxCO2
       });
 
       // Calculate ACTUAL cost from API response (includes discounts!)
@@ -325,7 +369,7 @@ router.post('/bunker/purchase-co2', express.json(), async (req, res) => {
       logger.info(`[Manual CO2 Purchase] User bought ${amount}t @ $${actualPricePerTon}/t = $${actualCost.toLocaleString('en-US')} (Cash before: $${cashBefore.toLocaleString('en-US')} Cash after: $${cashAfter.toLocaleString('en-US')})`);
 
       // AUDIT LOG: Manual CO2 purchase
-      const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
+      // (using audit-logger imported at top of file)
 
       // Validate data - FAIL LOUD if missing
       const co2After = data.user.co2 || data.user.co2_certificate;
@@ -375,32 +419,56 @@ router.post('/bunker/purchase-co2', express.json(), async (req, res) => {
         `
       });
 
-      // Broadcast CO2 purchase complete to unlock buttons
-      broadcastToUser(userId, 'co2_purchase_complete', { amount });
-
       // Trigger immediate data update
       await autopilot.tryUpdateAllData();
     }
+
+    // Release lock BEFORE sending response
+    state.setLockStatus(userId, 'co2Purchase', false);
+    logger.debug('[CO2 Purchase] Lock released');
+
+    // Broadcast CO2 purchase complete and updated lock status
+    broadcastToUser(userId, 'co2_purchase_complete', { amount });
+    broadcastToUser(userId, 'lock_status', {
+      depart: state.getLockStatus(userId, 'depart'),
+      fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+      co2Purchase: false,
+      repair: state.getLockStatus(userId, 'repair'),
+      bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+    });
 
     res.json(data);
   } catch (error) {
     logger.error('Error purchasing CO2:', error);
 
+    // Release lock on error
+    state.setLockStatus(userId, 'co2Purchase', false);
+
     // Broadcast error notification to all clients
-    const errorUserId = getUserId();
-    if (errorUserId) {
+    if (userId) {
       // Escape error message to prevent XSS
       const safeErrorMessage = validator.escape(error.message || 'Unknown error');
-      broadcastToUser(errorUserId, 'user_action_notification', {
+      broadcastToUser(userId, 'user_action_notification', {
         type: 'error',
         message: `💨 <strong>Purchase Failed</strong><br><br>${safeErrorMessage}`
       });
 
-      // Broadcast CO2 purchase complete to unlock buttons even on error
-      broadcastToUser(errorUserId, 'co2_purchase_complete', { amount: 0 });
+      // Broadcast CO2 purchase complete and updated lock status
+      broadcastToUser(userId, 'co2_purchase_complete', { amount: 0 });
+      broadcastToUser(userId, 'lock_status', {
+        depart: state.getLockStatus(userId, 'depart'),
+        fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+        co2Purchase: false,
+        repair: state.getLockStatus(userId, 'repair'),
+        bulkBuy: state.getLockStatus(userId, 'bulkBuy')
+      });
     }
 
     res.status(500).json({ error: 'Failed to purchase CO2' });
+  } finally {
+    // ALWAYS release lock, even if error occurred
+    state.setLockStatus(userId, 'co2Purchase', false);
+    logger.debug('[CO2 Purchase] Lock released (finally)');
   }
 });
 
@@ -434,7 +502,8 @@ router.post('/route/depart', async (req, res) => {
     // Call universal depart function
     // vesselIds = null means "depart all"
     // vesselIds = [1,2,3] means "depart these specific vessels"
-    const { broadcastToUser, broadcastHarborMapRefresh } = require('../websocket');
+    const { broadcastHarborMapRefresh } = require('../websocket');
+    // (using broadcastToUser imported at top of file)
     const result = await autopilot.departVessels(userId, vesselIds, broadcastToUser, autopilot.autoRebuyAll, autopilot.tryUpdateAllData);
 
     // LOGBOOK: Manual vessel departure (same format as Auto-Depart)
@@ -605,20 +674,40 @@ router.post('/maintenance/bulk-drydock', express.json(), async (req, res) => {
     return res.status(400).json({ error: 'Invalid maintenance_type. Must be "major" or "minor"' });
   }
 
+  const userId = getUserId();
+  const state = require('../state');
+
+  // LOCK: Prevent concurrent drydock operations (race condition protection)
+  if (state.getLockStatus(userId, 'drydock')) {
+    logger.debug('[Drydock] SKIPPED - Another drydock operation is already in progress');
+    return res.status(409).json({ error: 'Drydock operation already in progress' });
+  }
+
+  // Set lock and broadcast to all clients
+  state.setLockStatus(userId, 'drydock', true);
+  broadcastToUser(userId, 'drydock_start', {});
+  broadcastToUser(userId, 'lock_status', {
+    depart: state.getLockStatus(userId, 'depart'),
+    fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+    co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+    repair: state.getLockStatus(userId, 'repair'),
+    bulkBuy: state.getLockStatus(userId, 'bulkBuy'),
+    drydock: true
+  });
+  logger.debug('[Drydock] Lock acquired');
+
   try {
     const data = await apiCall('/maintenance/do-major-drydock-maintenance-bulk', 'POST', {
       vessel_ids,
       speed,
       maintenance_type
     });
-
-    const userId = getUserId();
+    const vesselCount = JSON.parse(vessel_ids).length;
     if (userId && data.data?.success) {
-      const vesselCount = JSON.parse(vessel_ids).length;
       logger.info(`[Manual Drydock] User sent ${vesselCount} vessel(s) to drydock (${maintenance_type}, ${speed} speed)`);
 
       // AUDIT LOG: Manual bulk drydock
-      const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
+      // (using audit-logger imported at top of file)
 
       const vessels = data.data.vessels || [];
       let totalCost = 0;
@@ -669,13 +758,33 @@ router.post('/maintenance/bulk-drydock', express.json(), async (req, res) => {
           maxCO2: cachedCapacity.maxCO2
         });
       }
+
+      // Trigger immediate drydock count update
+      await autopilot.tryUpdateAllData();
     }
+
+    // Release lock BEFORE sending response
+    state.setLockStatus(userId, 'drydock', false);
+    logger.debug('[Drydock] Lock released');
+
+    // Broadcast drydock complete and updated lock status
+    broadcastToUser(userId, 'drydock_complete', { count: vesselCount });
+    broadcastToUser(userId, 'lock_status', {
+      depart: state.getLockStatus(userId, 'depart'),
+      fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+      co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+      repair: state.getLockStatus(userId, 'repair'),
+      bulkBuy: state.getLockStatus(userId, 'bulkBuy'),
+      drydock: false
+    });
 
     res.json(data);
   } catch (error) {
     logger.error('Error executing drydock:', error);
 
-    const userId = getUserId();
+    // Release lock on error
+    state.setLockStatus(userId, 'drydock', false);
+
     if (userId) {
       const safeErrorMessage = validator.escape(error.message || 'Unknown error');
       broadcastToUser(userId, 'user_action_notification', {
@@ -683,9 +792,20 @@ router.post('/maintenance/bulk-drydock', express.json(), async (req, res) => {
         message: `🔧 <strong>Drydock Failed</strong><br><br>${safeErrorMessage}`
       });
 
+      // Broadcast drydock complete and updated lock status on error
+      broadcastToUser(userId, 'drydock_complete', { count: 0 });
+      broadcastToUser(userId, 'lock_status', {
+        depart: state.getLockStatus(userId, 'depart'),
+        fuelPurchase: state.getLockStatus(userId, 'fuelPurchase'),
+        co2Purchase: state.getLockStatus(userId, 'co2Purchase'),
+        repair: state.getLockStatus(userId, 'repair'),
+        bulkBuy: state.getLockStatus(userId, 'bulkBuy'),
+        drydock: false
+      });
+
       // AUDIT LOG: Manual bulk drydock failed
+      // (using audit-logger imported at top of file)
       try {
-        const { auditLog, CATEGORIES, SOURCES } = require('../utils/audit-logger');
         const vesselCount = vessel_ids ? JSON.parse(vessel_ids).length : 0;
 
         await auditLog(
@@ -709,6 +829,10 @@ router.post('/maintenance/bulk-drydock', express.json(), async (req, res) => {
     }
 
     res.status(500).json({ error: 'Failed to execute drydock' });
+  } finally {
+    // ALWAYS release lock, even if error occurred
+    state.setLockStatus(userId, 'drydock', false);
+    logger.debug('[Drydock] Lock released (finally)');
   }
 });
 
@@ -750,9 +874,8 @@ router.post('/marketing/activate-campaign', express.json(), async (req, res) => 
     // Log campaign activation (regardless of data.success value)
     const userId = getUserId();
     if (userId) {
+      // (using audit-logger imported at top of file)
       try {
-        const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
-
         // Fetch campaign details to get name and price
         const campaigns = await gameapi.fetchCampaigns();
 
@@ -767,7 +890,7 @@ router.post('/marketing/activate-campaign', express.json(), async (req, res) => 
             userId,
             CATEGORIES.MARKETING,
             'Campaign Activation',
-            `${activatedCampaign.name} (${activatedCampaign.option_name}) | ${formatCurrency(activatedCampaign.price)}`,
+            `${activatedCampaign.name} (${activatedCampaign.option_name}) | -${formatCurrency(activatedCampaign.price)}`,
             {
               campaign_id,
               campaign_name: activatedCampaign.name,
@@ -798,6 +921,22 @@ router.post('/marketing/activate-campaign', express.json(), async (req, res) => 
       }
     }
 
+    // Clear campaign cache to force fresh data fetch
+    const cache = require('../cache');
+    cache.invalidateCampaignCache();
+    logger.debug('[Marketing] Campaign cache invalidated after activation');
+
+    // Trigger data update to refresh campaign badge and header
+    // (using autopilot imported at top of file)
+    if (autopilot && autopilot.tryUpdateAllData) {
+      try {
+        await autopilot.tryUpdateAllData();
+        logger.debug('[Marketing] Campaign data update triggered after activation');
+      } catch (updateError) {
+        logger.error('[Marketing] Failed to update campaign data:', updateError.message);
+      }
+    }
+
     res.json(data);
   } catch (error) {
     logger.error('Error activating campaign:', error);
@@ -805,8 +944,8 @@ router.post('/marketing/activate-campaign', express.json(), async (req, res) => 
     // Log failed activation attempt
     const userId = getUserId();
     if (userId) {
+      // (using audit-logger imported at top of file)
       try {
-        const { auditLog, CATEGORIES, SOURCES } = require('../utils/audit-logger');
         await auditLog(
           userId,
           CATEGORIES.MARKETING,
@@ -897,7 +1036,6 @@ router.post('/vessel/sell-vessels', express.json(), async (req, res) => {
 
     let soldCount = 0;
     const errors = [];
-    let totalSalePrice = 0;
 
     // Sell each vessel individually (API only supports single vessel sales)
     for (const vesselId of vessel_ids) {
@@ -914,8 +1052,6 @@ router.post('/vessel/sell-vessels', express.json(), async (req, res) => {
           } else {
             logger.debug(`[Vessel Sell] Vessel ${vesselId} sold for $${sellPrice.toLocaleString()}`);
           }
-
-          totalSalePrice += sellPrice;
         }
       } catch (error) {
         logger.error(`[Vessel Sell] Failed to sell vessel ${vesselId}:`, error.message);
@@ -1036,15 +1172,39 @@ router.post('/vessel/purchase-vessel', express.json(), async (req, res) => {
       });
     }
 
-    // Always broadcast bunker update (cash decreased)
+    // Broadcast bunker update (cash decreased from purchase)
     if (userId && data.user) {
       broadcastToUser(userId, 'bunker_update', {
-        fuel: data.user.fuel / 1000,
-        co2: (data.user.co2 || data.user.co2_certificate) / 1000,
-        cash: data.user.cash,
-        maxFuel: data.user.fuel_capacity / 1000,
-        maxCO2: data.user.co2_certificate_capacity / 1000
+        cash: data.user.cash
       });
+      logger.debug(`[Vessel Purchase] Broadcast cash update: $${data.user.cash.toLocaleString()}`);
+    }
+
+    // Broadcast vessel count update (pending vessel added)
+    if (userId) {
+      try {
+        const vesselsResponse = await apiCall('/game/index', 'GET');
+        if (vesselsResponse?.vessels) {
+          const readyToDepart = vesselsResponse.vessels.filter(v =>
+            v.status === 'ready' && v.maintenance > 0
+          ).length;
+          const atAnchor = vesselsResponse.vessels.filter(v =>
+            v.status === 'anchor'
+          ).length;
+          const pending = vesselsResponse.vessels.filter(v =>
+            v.status === 'pending'
+          ).length;
+
+          broadcastToUser(userId, 'vessel_count_update', {
+            readyToDepart,
+            atAnchor,
+            pending
+          });
+          logger.debug(`[Vessel Purchase] Broadcast vessel count update: pending=${pending}`);
+        }
+      } catch (error) {
+        logger.error('[Vessel Purchase] Failed to broadcast vessel count update:', error.message);
+      }
     }
 
     res.json(data);
@@ -1135,9 +1295,8 @@ router.post('/vessel/broadcast-purchase-summary', express.json(), async (req, re
     });
 
     // AUDIT LOG: Manual vessel purchase - Log matching the notification message
+    // (using audit-logger imported at top of file)
     try {
-      const { auditLog, CATEGORIES, SOURCES } = require('../utils/audit-logger');
-
       await auditLog(
         userId,
         CATEGORIES.VESSEL,
@@ -1221,9 +1380,8 @@ router.post('/vessel/broadcast-sale-summary', express.json(), async (req, res) =
     });
 
     // AUDIT LOG: Manual vessel sale - Log matching the notification message
+    // (using audit-logger imported at top of file)
     try {
-      const { auditLog, CATEGORIES, SOURCES } = require('../utils/audit-logger');
-
       await auditLog(
         userId,
         CATEGORIES.VESSEL,
@@ -1399,7 +1557,7 @@ router.post('/vessel/bulk-repair', express.json(), async (req, res) => {
     logger.debug(`[Manual Bulk Repair] Repaired ${vesselsToRepair.length} vessels - costData.totalCost: $${totalCost.toLocaleString()}, calculatedTotalCost: $${calculatedTotalCost.toLocaleString()}, repairData.totalCost: $${repairData.totalCost.toLocaleString()}, Using: $${actualCost.toLocaleString()}`);
 
     // AUDIT LOG: Manual bulk repair
-    const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
+    // (using audit-logger imported at top of file)
 
     // Validate data - FAIL LOUD if missing
     if (vesselsToRepair.length === 0) {
@@ -1556,7 +1714,7 @@ router.post('/autopilot/trigger-depart', async (req, res) => {
     logger.debug(`[Auto-Depart] Event-driven trigger received for user ${userId}`);
 
     // Execute auto-depart with all required parameters
-    const { broadcastToUser } = require('../websocket');
+    // (using broadcastToUser imported at top of file)
     await autopilot.autoDepartVessels(
       autopilot.isAutopilotPaused(),
       broadcastToUser,
@@ -1581,7 +1739,7 @@ router.post('/autopilot/trigger-depart', async (req, res) => {
 router.post('/autopilot/toggle', async (req, res) => {
   try {
     const userId = getUserId();
-    const { broadcastToUser } = require('../websocket');
+    // (using broadcastToUser imported at top of file)
 
     // Toggle paused state in autopilot.js (global state)
     const currentlyPaused = autopilot.isAutopilotPaused();

@@ -6,10 +6,10 @@
  * @module harbor-map/map-controller
  */
 
-import { fetchHarborMapOverview, fetchVesselReachablePorts, fetchPortDetails, getCachedOverview } from './api-client.js';
-import { showVesselPanel, hideVesselPanel, closeVesselPanel } from './vessel-panel.js';
-import { showPortPanel, hidePortPanel, closePortPanel } from './port-panel.js';
-import { hideRoutePanel, closeRoutePanel } from './route-vessels-panel.js';
+import { fetchHarborMapOverview, fetchVesselReachablePorts, getCachedOverview } from './api-client.js';
+import { showVesselPanel, hideVesselPanel } from './vessel-panel.js';
+import { showPortPanel, hidePortPanel } from './port-panel.js';
+import { hideRoutePanel } from './route-vessels-panel.js';
 import { initializePanelDrag } from './panel-drag.js';
 import { filterVessels, filterPorts, getVesselFilterOptions, getPortFilterOptions } from './filters.js';
 import { showSideNotification, isMobileDevice } from '../utils.js';
@@ -33,7 +33,6 @@ let weatherLayer = null;
 
 // Marker cluster groups
 let vesselClusterGroup = null; // For vessels enroute
-let portClusterGroup = null; // For ports (DEPRECATED - now using portLocationClusterGroup)
 let portLocationClusterGroup = null; // For ports + vessels in port (combined to prevent overlap)
 
 // Current state
@@ -57,15 +56,8 @@ let currentEnvLayer = localStorage.getItem('harborMapEnvLayer') || 'off'; // 'of
 let envLayer = null;
 let envLayerControl = null;
 
-// Cloud animation
-let cloudAnimationFrames = [];
-let cloudAnimationInterval = null;
-let currentCloudFrame = 0;
-
 // POI Layer - Rotating button (off -> museums -> wrecks -> off)
-let currentPOILayer = localStorage.getItem('harborMapPOILayer') || 'off'; // 'off', 'museums', 'wrecks'
-let poiMarkerLayer = null;
-let poiLayerControl = null;
+// Note: POI layer planned but not implemented yet
 
 // Current data (for route filtering)
 let currentVessels = [];
@@ -238,7 +230,6 @@ export function initMap(containerId) {
       const markers = cluster.getAllChildMarkers();
       let containerCount = 0;
       let tankerCount = 0;
-      let otherCount = 0;
 
       // Count vessel types in cluster
       markers.forEach(marker => {
@@ -247,8 +238,6 @@ export function initMap(containerId) {
           containerCount++;
         } else if (className.includes('tanker')) {
           tankerCount++;
-        } else {
-          otherCount++;
         }
       });
 
@@ -282,21 +271,6 @@ export function initMap(containerId) {
     }
   });
 
-  portClusterGroup = L.markerClusterGroup({
-    maxClusterRadius: 15,
-    spiderfyOnMaxZoom: true,
-    showCoverageOnHover: false,
-    zoomToBoundsOnClick: true,
-    iconCreateFunction: function(cluster) {
-      const count = cluster.getChildCount();
-      return L.divIcon({
-        html: `<div style="background-color: #bfdbfe; opacity: 0.85; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #1e3a8a; font-weight: 600; font-size: 10px; border: 1px solid rgba(255,255,255,0.4); box-shadow: 0 2px 8px rgba(0,0,0,0.15);">${count}</div>`,
-        className: 'port-cluster-icon',
-        iconSize: L.point(20, 20)
-      });
-    }
-  });
-
   // Combined cluster group for ports + vessels in port (to prevent overlap)
   portLocationClusterGroup = L.markerClusterGroup({
     maxClusterRadius: 30, // Larger radius to catch overlapping port + vessel markers
@@ -304,20 +278,6 @@ export function initMap(containerId) {
     showCoverageOnHover: false,
     zoomToBoundsOnClick: true,
     iconCreateFunction: function(cluster) {
-      const markers = cluster.getAllChildMarkers();
-      let portCount = 0;
-      let vesselCount = 0;
-
-      // Count ports vs vessels in cluster
-      markers.forEach(marker => {
-        const className = marker.options.icon.options.className;
-        if (className && className.includes('port-icon')) {
-          portCount++;
-        } else {
-          vesselCount++;
-        }
-      });
-
       // Show combined count - blue color like normal port clusters
       const count = cluster.getChildCount();
       return L.divIcon({
@@ -427,7 +387,7 @@ async function showWeatherInfo(latlng, tooltipContent = null) {
                     geocodeData.address?.village ||
                     geocodeData.address?.county ||
                     null;
-    } catch (e) {
+    } catch {
       // Geocoding failed, will show coordinates instead
     }
 
@@ -1087,7 +1047,6 @@ function addCustomControls() {
   // Wrecks Layer Control - Simple toggle button
   let wrecksEnabled = localStorage.getItem('harborMapWrecksEnabled') === 'true';
   let wrecksMarkerLayer = null;
-  let wrecksZoomNotification = null; // Store notification to prevent stacking
   let wrecksLoadTimeout = null; // Debounce timer for loading wrecks
   let lastWrecksBounds = null; // Track last loaded bounds to avoid duplicate loads
 
@@ -1328,10 +1287,6 @@ function addCustomControls() {
       container.innerHTML = '<button title="Forecast Calendar">📅</button>';
       L.DomEvent.disableClickPropagation(container);
       container.querySelector('button').addEventListener('click', () => {
-        if (window.harborMap) {
-          if (typeof window.harborMap.closeVesselPanel === 'function') window.harborMap.closeVesselPanel();
-          if (typeof window.harborMap.closePortPanel === 'function') window.harborMap.closePortPanel();
-        }
         if (window.showForecastOverlay) window.showForecastOverlay();
       });
       return container;
@@ -1348,10 +1303,6 @@ function addCustomControls() {
       container.innerHTML = '<button title="Captain\'s Logbook">📋</button>';
       L.DomEvent.disableClickPropagation(container);
       container.querySelector('button').addEventListener('click', () => {
-        if (window.harborMap) {
-          if (typeof window.harborMap.closeVesselPanel === 'function') window.harborMap.closeVesselPanel();
-          if (typeof window.harborMap.closePortPanel === 'function') window.harborMap.closePortPanel();
-        }
         if (window.showLogbookOverlay) window.showLogbookOverlay();
       });
       return container;
@@ -1366,10 +1317,6 @@ function addCustomControls() {
       container.innerHTML = '<button title="Settings">⚙️</button>';
       L.DomEvent.disableClickPropagation(container);
       container.querySelector('button').addEventListener('click', () => {
-        if (window.harborMap) {
-          if (typeof window.harborMap.closeVesselPanel === 'function') window.harborMap.closeVesselPanel();
-          if (typeof window.harborMap.closePortPanel === 'function') window.harborMap.closePortPanel();
-        }
         if (window.showSettings) window.showSettings();
       });
       return container;
@@ -1384,10 +1331,6 @@ function addCustomControls() {
       container.innerHTML = '<button title="Documentation">📖</button>';
       L.DomEvent.disableClickPropagation(container);
       container.querySelector('button').addEventListener('click', () => {
-        if (window.harborMap) {
-          if (typeof window.harborMap.closeVesselPanel === 'function') window.harborMap.closeVesselPanel();
-          if (typeof window.harborMap.closePortPanel === 'function') window.harborMap.closePortPanel();
-        }
         if (window.showDocsOverlay) window.showDocsOverlay();
       });
       return container;
@@ -1775,7 +1718,36 @@ export function drawRoute(route, ports = [], autoZoom = true) {
   const polyline = L.polyline(latLngs, {
     color: '#3388ff',
     weight: 3,
-    opacity: 0.7
+    opacity: 0.7,
+    className: 'route-polyline-clickable'
+  });
+
+  // Add click handler to open route vessels panel
+  polyline.on('click', async () => {
+    console.log('[Harbor Map] Route line clicked:', originPort, '→', destinationPort);
+
+    // Close any open panels first to prevent overlap
+    await closeAllPanels();
+
+    // Filter vessels that are on this route (or reverse)
+    const vesselsOnRoute = currentVessels.filter(v => {
+      if (!v.active_route) return false;
+
+      const vesselOrigin = v.active_route.origin_port_code || v.active_route.origin;
+      const vesselDestination = v.active_route.destination_port_code || v.active_route.destination;
+
+      // Check both directions (forward and reverse)
+      return (vesselOrigin === originPort && vesselDestination === destinationPort) ||
+             (vesselOrigin === destinationPort && vesselDestination === originPort);
+    });
+
+    // Create route name for panel title
+    const originName = originPort ? originPort.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : 'Unknown';
+    const destName = destinationPort ? destinationPort.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : 'Unknown';
+    const routeName = `${originName} - ${destName}`;
+
+    console.log(`[Harbor Map] Opening route panel: ${routeName}, ${vesselsOnRoute.length} vessels`);
+    showRouteVesselsPanel(routeName, vesselsOnRoute);
   });
 
   routeLayer.addLayer(polyline);
@@ -2089,12 +2061,12 @@ async function applyFiltersAndRender() {
       // Any specific vessel filter (tanker, arrived, etc.) → hide ports
       renderVessels(vesselsToRender);
       renderPorts([]);
-      console.log(`[Harbor Map] Vessel filter "${currentVesselFilter}" active - hiding ports`);
+      if (window.DEBUG_MODE) console.log(`[Harbor Map] Vessel filter "${currentVesselFilter}" active - hiding ports`);
     } else if (!showBothPorts) {
       // Any specific port filter → hide vessels
       renderVessels([]);
       renderPorts(filteredPorts);
-      console.log(`[Harbor Map] Port filter "${currentPortFilter}" active - hiding vessels`);
+      if (window.DEBUG_MODE) console.log(`[Harbor Map] Port filter "${currentPortFilter}" active - hiding vessels`);
     } else {
       // Both on default (all_vessels/all_my_vessels + all_ports/my_ports) → show both
       renderVessels(vesselsToRender);
@@ -2200,12 +2172,14 @@ export async function selectVessel(vesselId) {
     selectedVesselId = vesselId;
     selectedPortCode = null;
 
-    const data = await fetchVesselReachablePorts(vesselId);
+    // PROGRESSIVE LOADING: Show vessel immediately with cached data
+    const vessel = rawVessels.find(v => v.id === vesselId);
+    if (!vessel) {
+      console.error(`[Harbor Map] Vessel ${vesselId} not found in rawVessels`);
+      return;
+    }
 
-    console.log(`[Harbor Map] Vessel ${vesselId} selected:`, {
-      reachablePorts: data.reachablePorts.length,
-      hasRoute: !!data.route
-    });
+    console.log(`[Harbor Map] Vessel ${vesselId} selected - showing immediately from cache`);
 
     // Close all panels first to avoid conflicts
     await closeAllPanels();
@@ -2215,46 +2189,49 @@ export async function selectVessel(vesselId) {
     portLocationClusterGroup.clearLayers();
     clearRoute();
 
-    // Render ONLY the selected vessel on the map
-    if (data.vessel && data.vessel.position) {
-      // Get vessel type
-      const vesselType = getVesselType(data.vessel.capacity_type);
-
-      // Calculate heading if vessel has route
+    // Render ONLY the selected vessel on the map (from cache)
+    if (vessel && vessel.position) {
+      const vesselType = getVesselType(vessel.capacity_type);
       let heading = 0;
-      if (data.route && data.route.path && data.route.path.length >= 2) {
-        const path = data.route.path;
-        // Find current position in path and calculate heading to next point
+
+      // Calculate heading from active_route if available
+      if (vessel.active_route && vessel.active_route.path && vessel.active_route.path.length >= 2) {
+        const path = vessel.active_route.path;
         for (let i = 0; i < path.length - 1; i++) {
           const point = path[i];
-          if (Math.abs(point.lat - data.vessel.position.lat) < 0.01 && Math.abs(point.lon - data.vessel.position.lon) < 0.01) {
+          if (Math.abs(point.lat - vessel.position.lat) < 0.01 && Math.abs(point.lon - vessel.position.lon) < 0.01) {
             heading = calculateHeading(point, path[i + 1]);
             break;
           }
         }
-        // If not found in path, use first two points
         if (heading === 0 && path.length >= 2) {
           heading = calculateHeading(path[0], path[1]);
         }
       }
 
-      // Create icon with heading (vessel rotation in travel direction)
-      const icon = createVesselIcon(data.vessel.status, vesselType, heading);
+      const icon = createVesselIcon(vessel.status, vesselType, heading);
+      const vesselMarker = L.marker([vessel.position.lat, vessel.position.lon], { icon });
 
-      // Use exact coordinates (no offset)
-      const vesselLat = data.vessel.position.lat;
-      const vesselLon = data.vessel.position.lon;
-
-      // Create marker for selected vessel (no tooltip - info is in panel)
-      const vesselMarker = L.marker([vesselLat, vesselLon], { icon });
-
-      // Add to appropriate cluster group based on status
-      if (data.vessel.status === 'port' || data.vessel.status === 'anchor') {
+      if (vessel.status === 'port' || vessel.status === 'anchor') {
         portLocationClusterGroup.addLayer(vesselMarker);
       } else {
         vesselClusterGroup.addLayer(vesselMarker);
       }
     }
+
+    // Show vessel panel IMMEDIATELY with cached data
+    showVesselPanel(vessel);
+
+    // NOW fetch reachable ports in background
+    console.log(`[Harbor Map] Loading reachable ports in background...`);
+    const data = await fetchVesselReachablePorts(vesselId);
+
+    console.log(`[Harbor Map] Reachable ports loaded:`, {
+      reachablePorts: data.reachablePorts.length,
+      hasRoute: !!data.route
+    });
+
+    // Update map with reachable ports and route data
 
     // Draw route if vessel has one (this will draw the 2 port markers)
     // drawRoute() draws: blue line + red origin marker + green destination marker
@@ -2325,11 +2302,60 @@ export async function selectVessel(vesselId) {
       });
     }
 
-    // Show vessel panel (closeAllPanels already called at the start)
-    showVesselPanel(data.vessel);
+    // Vessel panel already shown with cached data - update with reachable ports if needed
+    // (Panel might need reachable ports data for some features)
   } catch (error) {
     console.error(`Error selecting vessel ${vesselId}:`, error);
   }
+}
+
+/**
+ * Categorizes all vessels by their relationship to a specific port (CLIENT-SIDE)
+ * Replicates backend logic from harbor-map-aggregator.js
+ * Splits vessels into four categories: in port, heading to, coming from, pending
+ *
+ * @param {string} portCode - Port code to categorize vessels for
+ * @param {Array<Object>} allVessels - All user vessels from rawVessels
+ * @returns {Object} { inPort: [], toPort: [], fromPort: [], pending: [] }
+ * @example
+ * const categorized = categorizeVesselsByPortClientSide('boston_us', rawVessels);
+ * // Returns: { inPort: [v1, v2], toPort: [v3], fromPort: [v4, v5], pending: [v6] }
+ */
+function categorizeVesselsByPortClientSide(portCode, allVessels) {
+  const inPort = [];
+  const toPort = [];
+  const fromPort = [];
+  const pending = [];
+
+  allVessels.forEach(vessel => {
+    // Vessels being built/delivered (pending status)
+    if ((vessel.status === 'pending' || vessel.status === 'delivery') && vessel.current_port_code === portCode) {
+      pending.push(vessel);
+    }
+    // Vessels currently in port
+    else if (vessel.current_port_code === portCode && vessel.status !== 'enroute') {
+      inPort.push(vessel);
+    }
+    // Vessels heading to port (check both field names for compatibility)
+    else if (vessel.status === 'enroute' &&
+             (vessel.active_route?.destination === portCode || vessel.active_route?.destination_port_code === portCode)) {
+      toPort.push(vessel);
+    }
+    // Vessels coming from port (check both field names for compatibility)
+    else if (vessel.status === 'enroute' &&
+             (vessel.active_route?.origin === portCode || vessel.active_route?.origin_port_code === portCode)) {
+      fromPort.push(vessel);
+    }
+  });
+
+  console.log(`[Harbor Map] Client-side categorization for port ${portCode}:`, {
+    inPort: inPort.length,
+    toPort: toPort.length,
+    fromPort: fromPort.length,
+    pending: pending.length
+  });
+
+  return { inPort, toPort, fromPort, pending };
 }
 
 /**
@@ -2355,15 +2381,25 @@ export async function selectPort(portCode) {
     selectedPortCode = portCode;
     selectedVesselId = null;
 
-    const data = await fetchPortDetails(portCode);
+    // CLIENT-SIDE DATA LOADING (no API call needed!)
+    // Find port in rawPorts
+    const port = rawPorts.find(p => p.code === portCode);
+    if (!port) {
+      console.error(`[Harbor Map] Port ${portCode} not found in rawPorts`);
+      return;
+    }
 
-    console.log(`[Harbor Map] Port data received:`, {
-      port: data.port.code,
-      hasDemand: !!data.port.demand,
+    // Categorize vessels using client-side function
+    const vessels = categorizeVesselsByPortClientSide(portCode, rawVessels);
+
+    console.log(`[Harbor Map] Port data loaded from cache (0ms):`, {
+      port: port.code,
+      hasDemand: !!port.demand,
       vessels: {
-        inPort: data.vessels.inPort.length,
-        toPort: data.vessels.toPort.length,
-        fromPort: data.vessels.fromPort.length
+        inPort: vessels.inPort.length,
+        toPort: vessels.toPort.length,
+        fromPort: vessels.fromPort.length,
+        pending: vessels.pending.length
       }
     });
 
@@ -2376,13 +2412,13 @@ export async function selectPort(portCode) {
     clearRoute();
 
     // Render ONLY the selected port
-    renderPorts([data.port]);
+    renderPorts([port]);
 
     // Collect ALL vessels related to this port (in, to, from)
     const allRelatedVessels = [
-      ...data.vessels.inPort,
-      ...data.vessels.toPort,
-      ...data.vessels.fromPort
+      ...vessels.inPort,
+      ...vessels.toPort,
+      ...vessels.fromPort
     ];
 
     // Render ONLY the related vessels
@@ -2393,8 +2429,8 @@ export async function selectPort(portCode) {
     const bounds = L.latLngBounds();
 
     // Add port to bounds
-    if (data.port.lat && data.port.lon) {
-      bounds.extend([data.port.lat, data.port.lon]);
+    if (port.lat && port.lon) {
+      bounds.extend([port.lat, port.lon]);
     }
 
     // Add all vessels to bounds
@@ -2421,7 +2457,7 @@ export async function selectPort(portCode) {
     }
 
     // Show port panel
-    showPortPanel(data.port, data.vessels);
+    showPortPanel(port, vessels);
   } catch (error) {
     console.error(`Error selecting port ${portCode}:`, error);
   }

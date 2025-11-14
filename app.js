@@ -10,7 +10,7 @@ process.on('uncaughtException', (err) => {
     if (global.logger) {
       global.logger.error('UNCAUGHT EXCEPTION:', err);
     }
-  } catch (e) {
+  } catch {
     // Logger not available yet
   }
 
@@ -77,7 +77,7 @@ if (process.ppid) {
     try {
       // Check if parent process still exists
       process.kill(process.ppid, 0); // Signal 0 just checks existence
-    } catch (err) {
+    } catch {
       // Parent process is dead, shut down immediately
       console.error('[SM-CoPilot] Parent process died, shutting down...');
       clearInterval(checkParentInterval);
@@ -162,7 +162,6 @@ app.use('/api/vessel-image', vesselImageRoutes);
 
 // Autopilot pause/resume endpoint
 app.post('/api/autopilot/toggle', async (req, res) => {
-  const autopilot = require('./server/autopilot');
   const isPaused = autopilot.isAutopilotPaused();
 
   if (isPaused) {
@@ -176,7 +175,6 @@ app.post('/api/autopilot/toggle', async (req, res) => {
 
 // Get autopilot status endpoint
 app.get('/api/autopilot/status', (req, res) => {
-  const autopilot = require('./server/autopilot');
   res.json({ paused: autopilot.isAutopilotPaused() });
 });
 
@@ -184,7 +182,7 @@ app.get('/api/autopilot/status', (req, res) => {
 const server = createHttpsServer(app);
 
 // Initialize WebSocket
-const wss = initWebSocket(server);
+const wss = initWebSocket();
 
 // HTTP Upgrade for WebSocket
 server.on('upgrade', (request, socket, head) => {
@@ -298,7 +296,6 @@ const chatBot = require('./server/chatbot');
     // Load validated settings into state BEFORE initializing scheduler
     state.updateSettings(userId, settings);
     logger.info('[Autopilot] Settings loaded and validated:');
-    logger.debug(`[Autopilot] Interval: ${settings.autopilotInterval / 60}min`);
     if (settings.autoRebuyFuel) logger.debug(`[Autopilot] Barrel Boss enabled`);
     if (settings.autoRebuyCO2) logger.debug(`[Autopilot] Atmosphere Broker enabled`);
     if (settings.autoDepartAll) logger.debug(`[Autopilot] Cargo Marshal enabled`);

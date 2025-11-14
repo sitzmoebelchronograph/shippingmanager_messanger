@@ -108,7 +108,7 @@ async function writeLogsToDisk(userId, logs) {
     // Clean up temp file if it exists
     try {
       await fs.unlink(tempPath);
-    } catch (unlinkErr) {
+    } catch {
       // Ignore - file might not exist
     }
   }
@@ -168,7 +168,7 @@ async function logAutopilotAction(userId, autopilot, status, summary, details = 
   try {
     const { broadcastToUser } = require('./websocket');
     broadcastToUser(userId, 'logbook_update', logEntry);
-  } catch (err) {
+  } catch {
     // Silently fail if WebSocket not available (e.g., during startup)
     // Don't log error to avoid spam - WebSocket might not be initialized yet
   }

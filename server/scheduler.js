@@ -18,6 +18,8 @@ const autopilot = require('./autopilot');
 const state = require('./state');
 const { getUserId } = require('./utils/api');
 const logger = require('./utils/logger');
+const { isMigrationCompleted } = require('./utils/harbor-fee-store');
+const { migrateHarborFeesForUser } = require('./utils/migrate-harbor-fees');
 
 /**
  * Server ready state flag
@@ -46,19 +48,16 @@ function initScheduler() {
     }
   }, null, true, 'Europe/Berlin');
 
-  // 2. Auto-Anchor: Every 5 minutes (separate from main loop)
+  // 2. Auto-Anchor: Every 5 minutes
   new CronJob('0 */5 * * * *', async () => {
     try {
+      logger.debug('[Scheduler] Auto-Anchor cron triggered');
       const userId = getUserId();
-      if (!userId) return;
-
-      // Skip if autopilot is paused
-      if (autopilot.isAutopilotPaused()) {
-        logger.debug('[Scheduler] Auto-Anchor skipped - Autopilot is PAUSED');
+      if (!userId) {
+        logger.debug('[Scheduler] Auto-Anchor skipped - no userId');
         return;
       }
 
-      // Skip if server not ready yet (initial data not loaded)
       if (!serverReady) {
         logger.debug('[Scheduler] Auto-Anchor skipped - server not ready');
         return;
@@ -66,7 +65,6 @@ function initScheduler() {
 
       const settings = state.getSettings(userId);
       if (settings.autoAnchorPointEnabled) {
-        // Validate essential data before running
         const bunker = state.getBunkerState(userId);
         if (!bunker || bunker.points === undefined) {
           logger.warn('[Scheduler] Auto-Anchor skipped - bunker data not loaded');
@@ -112,12 +110,54 @@ function initScheduler() {
       await autopilot.updatePrices();
 
       logger.info('[Scheduler] Step 3/3: Checking price alerts...');
-      await autopilot.checkPriceAlerts();
+      const prices = state.getPrices(userId);
+      await autopilot.checkPriceAlerts(userId, prices);
 
       logger.info('[Scheduler] INITIAL DATA LOADED - UI READY');
 
       // Mark server as ready
       serverReady = true;
+
+      // Harbor Fee Migration: Run once automatically on first startup
+      logger.info('[Scheduler] Checking harbor fee migration status...');
+      try {
+        const migrationCompleted = await isMigrationCompleted();
+        if (!migrationCompleted) {
+          logger.info('[Scheduler] Starting automatic harbor fee migration...');
+          logger.info('[Scheduler] This is a one-time migration of historical data from logbook');
+          logger.info('[Scheduler] To re-run migration, delete: userdata/harbor-fees/.migration-completed');
+
+          const stats = await migrateHarborFeesForUser(userId);
+
+          if (stats.migrated > 0) {
+            logger.info(`[Scheduler] Harbor fee migration completed: ${stats.migrated}/${stats.total} fees migrated`);
+          } else {
+            logger.info('[Scheduler] Harbor fee migration: No fees to migrate');
+          }
+        } else {
+          logger.debug('[Scheduler] Harbor fee migration already completed (skip)');
+        }
+      } catch (error) {
+        logger.error('[Scheduler] Harbor fee migration failed:', error.message);
+        logger.error('[Scheduler] Migration can be re-run by deleting: userdata/harbor-fees/.migration-completed');
+      }
+
+      // Run Auto-Anchor once on startup
+      logger.info('[Scheduler] Running Auto-Anchor on startup...');
+      try {
+        if (!autopilot.isAutopilotPaused()) {
+          // (using settings from outer scope - already loaded on line 97)
+          if (settings.autoAnchorPointEnabled) {
+            await autopilot.autoAnchorPointPurchase(userId);
+          } else {
+            logger.debug('[Scheduler] Auto-Anchor disabled in settings');
+          }
+        } else {
+          logger.debug('[Scheduler] Auto-Anchor skipped - Autopilot is PAUSED');
+        }
+      } catch (error) {
+        logger.error('[Scheduler] Auto-Anchor startup run failed:', error);
+      }
 
       // Start event-driven autopilot loop (60s interval)
       logger.info('[Scheduler] Starting event-driven autopilot loop...');

@@ -33,7 +33,7 @@ let keytar;
 try {
     keytar = require('keytar');
     logger.debug('[Encryption] Using native OS credential storage (keytar)');
-} catch (error) {
+} catch {
     logger.warn('[Encryption] keytar not available, falling back to local encryption');
     keytar = null;
 }
@@ -130,11 +130,10 @@ async function encryptData(data, accountName) {
  * This affects browser sessions saved by Python but not Steam sessions (saved differently).
  *
  * @param {string} encryptedData - Encrypted data string from encryptData()
- * @param {string} accountName - Unique identifier used during encryption
  * @returns {Promise<string|null>} Decrypted data or null if decryption fails
  *
  * @example
- * const decrypted = await decryptData('KEYRING:session_12345', 'session_12345');
+ * const decrypted = await decryptData('KEYRING:session_12345');
  * // Returns: 'my-secret-cookie' or null
  *
  * @example
@@ -142,7 +141,7 @@ async function encryptData(data, accountName) {
  * // Input from keyring: "e\0y\0J\0..." (680 chars with null bytes)
  * // Output: "eyJ..." (340 chars, null bytes removed)
  */
-async function decryptData(encryptedData, accountName) {
+async function decryptData(encryptedData) {
     if (!encryptedData) {
         return null;
     }
@@ -208,7 +207,7 @@ async function decryptData(encryptedData, accountName) {
                 throw new Error('Invalid encrypted data format');
             }
 
-            const [version, ivBase64, authTagBase64, encrypted] = parts;
+            const [, ivBase64, authTagBase64, encrypted] = parts;
 
             const key = getMachineKey();
             const iv = Buffer.from(ivBase64, 'base64');

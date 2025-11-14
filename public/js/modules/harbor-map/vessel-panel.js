@@ -35,7 +35,7 @@ function getPortCountryCode(portCode) {
     const ports = window.harborMap.getCurrentPorts();
     const port = ports.find(p => p.code === portCode);
     return port?.country || '';
-  } catch (e) {
+  } catch {
     return '';
   }
 }
@@ -476,43 +476,12 @@ async function loadVesselHistory(vesselId) {
       return;
     }
 
-    // Store full history
-    allHistoryData = data.history;
+    // Store full history (reverse to show newest first)
+    allHistoryData = data.history.reverse();
     displayedHistoryCount = 0;
 
     // Render first 3 trips
     renderHistoryPage();
-
-    // Format cargo display
-    const formatCargo = (cargo) => {
-      if (!cargo) return 'N/A';
-      if (typeof cargo === 'string') return cargo;
-
-      // Container cargo
-      if (cargo.dry !== undefined || cargo.refrigerated !== undefined) {
-        const dry = cargo.dry;
-        const ref = cargo.refrigerated;
-        const total = dry + ref;
-        return `${total} TEU (${dry} dry, ${ref} ref)`;
-      }
-
-      // Tanker cargo
-      if (cargo.fuel !== undefined || cargo.crude_oil !== undefined) {
-        const fuel = cargo.fuel;
-        const crude = cargo.crude_oil;
-        return `${fuel > 0 ? fuel + ' bbl fuel' : ''}${fuel > 0 && crude > 0 ? ', ' : ''}${crude > 0 ? crude + ' bbl crude' : ''}`;
-      }
-
-      return JSON.stringify(cargo);
-    };
-
-    // Format duration (seconds to human readable)
-    const formatDuration = (seconds) => {
-      if (!seconds) return 'N/A';
-      const hours = Math.floor(seconds / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      return `${hours}h ${minutes}m`;
-    };
 
   } catch (error) {
     loadingEl.style.display = 'none';
@@ -598,39 +567,54 @@ function renderHistoryPage() {
       }
     }
 
+    // Check if it's a service trip (no cargo loaded)
+    const isServiceTrip = !trip.profit && trip.cargo &&
+      (trip.cargo.dry === 0 && trip.cargo.refrigerated === 0 &&
+       trip.cargo.fuel === 0 && trip.cargo.crude_oil === 0);
+
+    // Check if harbor fee is high (threshold: $50,000)
+    const harborFeeThreshold = 50000;
+    const isHighHarborFee = trip.harbor_fee && trip.harbor_fee > harborFeeThreshold;
+    const entryClass = isHighHarborFee ? 'history-entry high-harbor-fee' : 'history-entry';
+
     return `
-    <div class="history-entry">
+    <div class="${entryClass}">
       <div class="history-route">
         <strong>${formatPortName(trip.origin)}</strong> → <strong>${formatPortName(trip.destination)}</strong>
       </div>
       <div class="history-details">
         <div class="history-row">
-          <span>📅 ${trip.date ? new Date(trip.date).toLocaleString() : 'N/A'}</span>
+          <span>Date: ${trip.date ? new Date(trip.date).toLocaleString() : 'N/A'}</span>
         </div>
         <div class="history-row">
-          <span class="cargo-label">📦 Cargo:</span>
+          <span class="cargo-label">Cargo:</span>
         </div>
         <div class="history-row cargo-row">
           ${formatCargo(trip.cargo)}
         </div>
         <div class="history-row">
-          <span>💰 Income: $${trip.profit ? trip.profit.toLocaleString() : 'N/A'}</span>
+          <span>Income: ${isServiceTrip ? 'Service Trip' : (trip.profit ? '$' + trip.profit.toLocaleString() : '$N/A')}</span>
+        </div>
+        ${trip.harbor_fee ? `
+        <div class="history-row${isHighHarborFee ? ' high-fee-text' : ''}">
+          <span>Harbor Fee: $${trip.harbor_fee.toLocaleString()}</span>
+        </div>
+        ` : ''}
+        <div class="history-row">
+          <span>Fuel: ${trip.fuel_used ? Math.round(trip.fuel_used / 1000).toLocaleString() + ' t' : 'N/A'}</span>
         </div>
         <div class="history-row">
-          <span>⛽ Fuel: ${trip.fuel_used ? Math.round(trip.fuel_used / 1000).toLocaleString() + ' t' : 'N/A'}</span>
+          <span>Distance: ${trip.distance ? trip.distance.toLocaleString() + ' km' : 'N/A'}</span>
         </div>
         <div class="history-row">
-          <span>📏 Distance: ${trip.distance ? trip.distance.toLocaleString() + ' km' : 'N/A'}</span>
+          <span>Duration: ${formatDuration(trip.duration)}</span>
         </div>
         <div class="history-row">
-          <span>⏱️ Duration: ${formatDuration(trip.duration)}</span>
-        </div>
-        <div class="history-row">
-          <span>🔧 Wear: ${trip.wear ? trip.wear.toFixed(2) + '%' : 'N/A'}</span>
+          <span>Wear: ${trip.wear ? trip.wear.toFixed(2) + '%' : 'N/A'}</span>
         </div>
         ${revenuePerNm ? `
         <div class="history-row">
-          <span>💵 Revenue/nm: $${parseFloat(revenuePerNm).toLocaleString()}/nm</span>
+          <span>Revenue/nm: $${parseFloat(revenuePerNm).toLocaleString()}/nm</span>
         </div>
         ` : ''}
       </div>
@@ -880,7 +864,7 @@ export async function sellVesselFromPanel(vesselId, vesselName) {
 
     if (!response.ok) throw new Error('Failed to sell vessel');
 
-    const data = await response.json();
+    await response.json();
 
     showSideNotification(`✅ Sold ${vesselName} for $${formatNumber(sellPrice)}`, 'success');
 
@@ -903,18 +887,13 @@ export async function sellVesselFromPanel(vesselId, vesselName) {
  * @param {number} vesselId - Vessel ID
  */
 async function openRepairDialog(vesselId) {
-  try {
-    const settings = window.settings || {};
+  const settings = window.settings || {};
 
-    // Import openRepairAndDrydockDialog from vessel-management
-    if (window.openRepairAndDrydockDialog) {
-      await window.openRepairAndDrydockDialog(settings, vesselId);
-    } else {
-      showSideNotification('Repair dialog not available', 'error');
-    }
-  } catch (error) {
-    console.error('[Vessel Panel] Repair dialog error:', error);
-    showSideNotification('Failed to open repair dialog', 'error');
+  // Import openRepairAndDrydockDialog from vessel-management
+  if (window.openRepairAndDrydockDialog) {
+    await window.openRepairAndDrydockDialog(settings, vesselId);
+  } else {
+    showSideNotification('Repair dialog not available', 'error');
   }
 }
 

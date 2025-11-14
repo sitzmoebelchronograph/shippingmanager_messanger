@@ -18,7 +18,6 @@
 
 const fs = require('fs').promises;
 const path = require('path');
-const os = require('os');
 const logger = require('./utils/logger');
 const { getAppDataDir } = require('./config');
 

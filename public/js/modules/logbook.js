@@ -19,7 +19,6 @@
 
 import { escapeHtml, showNotification } from './utils.js';
 import { fetchLogbookEntries, downloadLogbookExport, deleteAllLogs, fetchLogbookFileSize } from './api.js';
-import { showConfirmDialog } from './ui-dialogs.js';
 
 /**
  * Current filter state
@@ -256,40 +255,6 @@ function updateActionFilter() {
     // Keep category or source selection
     actionSelect.value = currentValue;
   }
-}
-
-/**
- * Recursively searches through an object for a search term
- * @param {*} obj - Object to search through
- * @param {string} searchTerm - Term to search for (case-insensitive)
- * @returns {boolean} - True if term found anywhere in object
- */
-function searchInObject(obj, searchTerm) {
-  if (!searchTerm) return true;
-
-  const lowerSearch = searchTerm.toLowerCase();
-
-  // Handle primitive types
-  if (obj === null || obj === undefined) {
-    return false;
-  }
-  if (typeof obj !== 'object') {
-    return String(obj).toLowerCase().includes(lowerSearch);
-  }
-
-  // Handle arrays
-  if (Array.isArray(obj)) {
-    return obj.some(item => searchInObject(item, searchTerm));
-  }
-
-  // Handle objects
-  for (const value of Object.values(obj)) {
-    if (searchInObject(value, searchTerm)) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 /**

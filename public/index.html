@@ -8,6 +8,20 @@
     <link rel="stylesheet" href="/css/harbor-map.css">
 </head>
 <body>
+    <!-- Hidden Badge Elements (for badge-manager.js sync) -->
+    <div id="hiddenBadges" style="display: none;">
+        <span id="vesselCount"></span>
+        <span id="anchorCount"></span>
+        <span id="repairCount"></span>
+        <span id="drydockCount"></span>
+        <span id="pendingVesselsBadge"></span>
+        <span id="unreadBadge"></span>
+        <span id="hijackingBadge"></span>
+        <span id="campaignsCount"></span>
+        <span id="coopBadge"></span>
+        <span id="allianceChatBadge"></span>
+    </div>
+
     <!-- Price Alerts (center, with spin animation) -->
     <div id="globalFeedback"></div>
 
@@ -16,37 +30,43 @@
 
     <div class="container">
         <div class="header">
-            <div class="header-top" style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div class="header-top">
                 <h1>
-                    <span class="header-icon" style="position: relative; display: inline-block;">
-                        <span id="ceoLevelBadge" style="position: relative; display: inline-block; width: 47px; height: 47px; margin-right: 2px; margin-left: -5px; vertical-align: middle; top: 2px;">
-                            <svg viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4)); overflow: visible;">
-                                <defs>
-                                    <clipPath id="starClip">
-                                        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-                                    </clipPath>
-                                </defs>
-                                <!-- Background star (empty/outline) -->
-                                <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="rgba(251, 191, 36, 0.2)" stroke="#f59e0b" stroke-width="0.5"/>
-                                <!-- XP Progress fill (grows from left to right using clip-path) -->
-                                <rect id="ceoLevelFill" x="0" y="0" width="0" height="24" fill="#fbbf24" clip-path="url(#starClip)" style="transition: width 0.3s ease;"/>
-                                <!-- Star outline on top -->
-                                <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="none" stroke="#f59e0b" stroke-width="0.5"/>
-                            </svg>
-                            <span id="ceoLevelNumber" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 17px; font-weight: 900; color: #ffffff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);"></span>
-                        </span>
-                    </span>
                     <span class="header-text">
-                        <div id="pageHeaderTitle">Shipping Manager - CoPilot</div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span id="ceoLevelBadge" style="position: relative; display: inline-block; width: 35px; height: 35px;">
+                                <svg viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4)); overflow: visible;">
+                                    <defs>
+                                        <clipPath id="starClip">
+                                            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+                                        </clipPath>
+                                    </defs>
+                                    <!-- Background star (empty/outline) -->
+                                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="rgba(251, 191, 36, 0.2)" stroke="#f59e0b" stroke-width="0.5"/>
+                                    <!-- XP Progress fill (grows from left to right using clip-path) -->
+                                    <rect id="ceoLevelFill" x="0" y="0" width="0" height="24" fill="#fbbf24" clip-path="url(#starClip)" style="transition: width 0.3s ease;"/>
+                                    <!-- Star outline on top -->
+                                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="none" stroke="#f59e0b" stroke-width="0.5"/>
+                                </svg>
+                                <span id="ceoLevelNumber" style="position: absolute; top: calc(50% + 1px); left: 50%; transform: translate(-50%, -50%); font-size: 14px; font-weight: 900; color: #ffffff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);"></span>
+                            </span>
+                            <div id="pageHeaderTitle">Shipping Manager - CoPilot</div>
+                        </div>
                         <div class="header-bunker-displays">
-                            <button id="fuelBtn" class="action-btn bunker-btn header-bunker-btn">
-                                <div id="fuelFill" class="bunker-fill"></div>
-                                <span class="bunker-content">⛽ <span id="fuelDisplay"></span></span>
-                            </button>
-                            <button id="co2Btn" class="action-btn bunker-btn header-bunker-btn">
-                                <div id="co2Fill" class="bunker-fill"></div>
-                                <span class="bunker-content">💨 <span id="co2Display"></span></span>
-                            </button>
+                            <div class="bunker-group">
+                                <button id="fuelBtn" class="action-btn bunker-btn header-bunker-btn">
+                                    <div id="fuelFill" class="bunker-fill"></div>
+                                    <span class="bunker-content">⛽ <span id="fuelDisplay"></span></span>
+                                </button>
+                                <span id="fuelPriceDisplay"></span>
+                            </div>
+                            <div class="bunker-group">
+                                <button id="co2Btn" class="action-btn bunker-btn header-bunker-btn">
+                                    <div id="co2Fill" class="bunker-fill"></div>
+                                    <span class="bunker-content">💨 <span id="co2Display"></span></span>
+                                </button>
+                                <span id="co2PriceDisplay"></span>
+                            </div>
                         </div>
                     </span>
                     <button id="notificationBtn" class="megaphone-btn">
@@ -79,14 +99,6 @@
                 <div style="display: flex; align-items: center; gap: 2px;">
                     <span style="color: #4ade80; font-weight: 600; font-size: 15px;">💰</span>
                     <span id="cashDisplay" style="color: #4ade80; font-weight: 600; font-size: 13px;"></span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 2px;">
-                    <span style="font-size: 15px;">⛽</span>
-                    <span id="fuelPriceDisplay" style="font-weight: 500; font-size: 13px; color: #9ca3af; position: relative; top: 1px;"></span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 2px;">
-                    <span style="font-size: 15px;">💨</span>
-                    <span id="co2PriceDisplay" style="font-weight: 500; font-size: 13px; color: #9ca3af;"></span>
                 </div>
                 <div id="coopContainer" class="hidden" style="display: flex; align-items: center; gap: 2px;">
                     <span style="font-size: 15px;">🤝</span>
@@ -165,7 +177,7 @@
                         <span class="map-icon-badge map-badge-red hidden"></span>
                     </div>
                     <div class="map-icon-item" data-action="contactList" title="View contact list">
-                        👥
+                        👤
                     </div>
                 </div>
             </div>

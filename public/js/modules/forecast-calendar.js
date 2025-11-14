@@ -13,7 +13,6 @@
 let pageFlip = null;
 let daysData = [];
 let deliveredTimezone = null; // Timezone the data was delivered in
-let sourceTimezone = null; // Original source timezone (always CEST)
 let currentEventDiscount = null; // Current event discount {percentage, type}
 let currentEventData = null; // Full event data with time_start, time_end (UTC timestamps)
 let currentMonth = null; // Currently displayed month (1-12)
@@ -188,16 +187,6 @@ function createTableHTML(hourlyIntervals, dayNumber, month, year) {
 }
 
 /**
- * Format date for display
- */
-function formatDate(dayIndex) {
-    const year = currentYear || new Date().getFullYear();
-    const month = String(currentMonth || (new Date().getMonth() + 1)).padStart(2, '0');
-    const day = String(dayIndex).padStart(2, '0');
-    return `${day}/${month}/${year}`;
-}
-
-/**
  * Render the forecast book with page-flip
  * Includes current month + adjacent months for seamless navigation
  */
@@ -258,7 +247,7 @@ function renderBook() {
     }
 
     // Render all pages
-    allMonthsData.forEach((dayData, dayIndex) => {
+    allMonthsData.forEach((dayData) => {
         // Use the month/year from the data itself
         const formattedDate = `${String(dayData.day).padStart(2, '0')}/${String(dayData.month).padStart(2, '0')}/${dayData.year}`;
 
@@ -370,7 +359,7 @@ function renderBook() {
     pageFlip.loadFromHTML(document.querySelectorAll('.page'));
 
     // Update event badge when page is flipped (day-specific display)
-    pageFlip.on('flip', (e) => {
+    pageFlip.on('flip', () => {
         // Update badge to show only if event active on currently visible day
         updateEventBadge();
 

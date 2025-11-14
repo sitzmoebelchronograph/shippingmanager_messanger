@@ -107,26 +107,23 @@ function getUserState(userId) {
         fuel: null,
         co2: null
       },
-      settings: {
-        autoRebuyFuel: false,
-        autoRebuyCO2: false,
-        autoDepartAll: false,
-        autoBulkRepair: false,
-        autoCampaignRenewal: false,
-        fuelThreshold: 400,
-        co2Threshold: 7,
-        fuelTargetPercent: 80,
-        co2TargetPercent: 80,
-        autoDepartInterval: 1,
-        enableDesktopNotifications: false
-      },
+      settings: null,  // Will be loaded from file via initializeSettings() - NO DEFAULTS HERE!
       autopilotState: {},
       vesselCounts: null,
       repairCount: null,
+      drydockCount: null,
       campaignStatus: null,
       coopData: null,
       headerData: null,
-      eventData: null
+      eventData: null,
+      locks: {
+        depart: false,
+        fuelPurchase: false,
+        co2Purchase: false,
+        repair: false,
+        bulkBuy: false,
+        drydock: false
+      }
     });
   }
   return userStates.get(userIdString);
@@ -189,11 +186,13 @@ function getPrices(userId) {
  * Updates autopilot settings.
  *
  * @param {string} userId - User ID
- * @param {Partial<UserSettings>} settings - Settings to update (partial object)
+ * @param {Partial<UserSettings>} settings - Settings to update (partial or full object)
  */
 function updateSettings(userId, settings) {
   const state = getUserState(userId);
-  state.settings = { ...state.settings, ...settings };
+  // First load: settings is null, set directly
+  // Subsequent updates: merge with existing settings
+  state.settings = state.settings === null ? settings : { ...state.settings, ...settings };
 }
 
 /**
@@ -201,9 +200,14 @@ function updateSettings(userId, settings) {
  *
  * @param {string} userId - User ID
  * @returns {UserSettings} Current settings
+ * @throws {Error} If settings have not been loaded yet
  */
 function getSettings(userId) {
-  return getUserState(userId).settings;
+  const settings = getUserState(userId).settings;
+  if (settings === null) {
+    throw new Error(`FATAL: Settings not loaded for user ${userId}. Settings must be initialized via updateSettings() before use.`);
+  }
+  return settings;
 }
 
 /**
@@ -337,6 +341,25 @@ function getRepairCount(userId) {
 }
 
 /**
+ * Updates drydock count.
+ * @param {string} userId - User ID
+ * @param {number} count - Number of vessels in drydock
+ */
+function updateDrydockCount(userId, count) {
+  const state = getUserState(userId);
+  state.drydockCount = count;
+}
+
+/**
+ * Gets drydock count.
+ * @param {string} userId - User ID
+ * @returns {number|null} Drydock count
+ */
+function getDrydockCount(userId) {
+  return getUserState(userId).drydockCount;
+}
+
+/**
  * Updates campaign status.
  * @param {string} userId - User ID
  * @param {Object} status - Campaign status {activeCount}
@@ -412,6 +435,40 @@ function getEventData(userId) {
   return getUserState(userId).eventData;
 }
 
+/**
+ * Gets lock status for a specific operation.
+ *
+ * @param {string} userId - User ID
+ * @param {string} lockType - Lock type ('depart', 'fuelPurchase', 'co2Purchase', 'repair', 'bulkBuy')
+ * @returns {boolean} Lock status
+ */
+function getLockStatus(userId, lockType) {
+  const state = getUserState(userId);
+  return state.locks[lockType] || false;
+}
+
+/**
+ * Sets lock status for a specific operation.
+ *
+ * @param {string} userId - User ID
+ * @param {string} lockType - Lock type ('depart', 'fuelPurchase', 'co2Purchase', 'repair', 'bulkBuy')
+ * @param {boolean} locked - Lock status
+ */
+function setLockStatus(userId, lockType, locked) {
+  const state = getUserState(userId);
+  state.locks[lockType] = locked;
+}
+
+/**
+ * Gets all lock statuses for a user.
+ *
+ * @param {string} userId - User ID
+ * @returns {Object} All lock statuses
+ */
+function getAllLocks(userId) {
+  return getUserState(userId).locks;
+}
+
 module.exports = {
   getUserState,
   updateBunkerState,
@@ -432,6 +489,8 @@ module.exports = {
   getVesselCounts,
   updateRepairCount,
   getRepairCount,
+  updateDrydockCount,
+  getDrydockCount,
   updateCampaignStatus,
   getCampaignStatus,
   updateCoopData,
@@ -439,5 +498,8 @@ module.exports = {
   updateHeaderData,
   getHeaderData,
   updateEventData,
-  getEventData
+  getEventData,
+  getLockStatus,
+  setLockStatus,
+  getAllLocks
 };

@@ -14,7 +14,7 @@
  * @event install
  * @param {ExtendableEvent} event - The install event
  */
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   console.log('[Service Worker] Installing...');
   self.skipWaiting();
 });

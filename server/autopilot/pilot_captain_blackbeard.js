@@ -10,12 +10,9 @@
 const state = require('../state');
 const logger = require('../utils/logger');
 const { getUserId, apiCall } = require('../utils/api');
-const config = require('../config');
 const path = require('path');
 const fs = require('fs');
 const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
-
-const DEBUG_MODE = config.DEBUG_MODE;
 
 /**
  * Get hijacking case data with retry logic.

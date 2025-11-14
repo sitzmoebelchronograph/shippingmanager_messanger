@@ -6,8 +6,7 @@
  * @module harbor-map/route-vessels-panel
  */
 
-import { showVesselPanel } from './vessel-panel.js';
-import { closeAllPanels, getMap, selectVessel } from './map-controller.js';
+import { getMap, selectVessel } from './map-controller.js';
 import { isMobileDevice } from '../utils.js';
 
 /**
@@ -112,9 +111,6 @@ export function hideRoutePanel() {
   console.log('[Route Panel] Panel hidden');
 }
 
-// Store vessels for selection
-let currentRouteVessels = [];
-
 /**
  * Stores vessels for later selection
  * Called internally by showRoutePanel
@@ -122,8 +118,8 @@ let currentRouteVessels = [];
  * @param {Array<Object>} vessels - Vessels to store
  * @returns {void}
  */
-function storeVessels(vessels) {
-  currentRouteVessels = vessels;
+function storeVessels() {
+  // Function exists for potential future use
 }
 
 /**

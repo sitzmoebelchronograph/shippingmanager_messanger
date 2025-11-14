@@ -184,7 +184,7 @@ router.post('/anchor/purchase', express.json(), async (req, res) => {
           const availableCapacity = maxAnchorPoints - deliveredVessels - pendingVessels;
 
           // Use stored pending amount from settings
-          const anchorNextBuild = gameData.data.user_settings?.anchor_next_build || null;
+          // (using anchorNextBuild from outer scope - already loaded on line 136)
           const now = Math.floor(Date.now() / 1000);
           const pendingAnchorPoints = (anchorNextBuild && anchorNextBuild > now) ? amount : 0;
 
@@ -278,10 +278,9 @@ router.post('/anchor-point/purchase', express.json(), async (req, res) => {
     const userId = getUserId();
     const state = require('../state');
 
-    // Get current price and duration
+    // Get current price
     const priceData = await apiCall('/anchor-point/get-anchor-price', 'POST', {});
     const price = priceData.data.price;
-    const duration = priceData.data.duration;
     const totalCost = price * amount;
 
     // Check if user has enough cash

@@ -28,46 +28,14 @@
  * when prices drop, without constant API polling.
  *
  * @module automation
- * @requires api - purchaseFuel, purchaseCO2, departAllVessels, fetchVessels, getMaintenanceCost, doWearMaintenanceBulk, fetchCampaigns, activateCampaign
+ * @requires api - purchaseFuel, purchaseCO2, fetchVessels, fetchCampaigns, activateCampaign
  * @requires utils - formatNumber, showNotification, showSideNotification, saveSettings
  * @requires bunker-management - getCurrentBunkerState
  */
 
-import { purchaseFuel, purchaseCO2, departAllVessels, fetchVessels, getMaintenanceCost, doWearMaintenanceBulk, fetchCampaigns, activateCampaign, departVessel, fetchAssignedPorts } from './api.js';
+import { purchaseFuel, purchaseCO2, fetchVessels, fetchCampaigns, activateCampaign, departVessel, fetchAssignedPorts } from './api.js';
 import { formatNumber, showNotification, showSideNotification, saveSettings } from './utils.js';
 import { getCurrentBunkerState } from './bunker-management.js';
-
-/**
- * Sends feedback message to UI and optionally displays browser notification.
- * Notifications are only shown if autoPilotNotifications setting is enabled
- * and browser notification permission has been granted.
- *
- * HTML tags are automatically stripped from notification body text.
- *
- * @async
- * @param {string} message - Message to display (may contain HTML)
- * @param {string} [type='success'] - Feedback type ('success', 'error', 'info')
- * @returns {Promise<void>}
- */
-async function sendAutoPilotFeedback(message, type = 'success') {
-  const settings = window.getSettings ? window.getSettings() : {};
-
-  showSideNotification(message, type);
-
-  const desktopNotifsEnabled = settings.enableDesktopNotifications !== undefined ? settings.enableDesktopNotifications : true;
-  if (desktopNotifsEnabled && Notification.permission === 'granted') {
-    // Strip HTML tags for notification
-    const plainMessage = message.replace(/<[^>]*>/g, '');
-    await showNotification('🤖 Auto-Pilot Action', {
-      body: `
-
-${plainMessage}`,
-      icon: '/favicon.ico',
-      tag: 'auto-pilot',
-      silent: false
-    });
-  }
-}
 
 // ============================================================================
 // State Variables
@@ -101,31 +69,6 @@ let lastVesselCheck = 0;
  * @type {number}
  */
 let lastCampaignCheck = 0;
-
-
-/**
- * Shows a center alert (like price alerts) with optional auto-dismiss.
- * @param {string} message - HTML message to display (should include full styling)
- * @param {number} [duration=0] - Auto-dismiss after milliseconds (0 = manual dismiss only)
- */
-function showCenterAlert(message, duration = 0) {
-  const globalFeedback = document.getElementById('globalFeedback');
-  if (!globalFeedback) return;
-
-  globalFeedback.innerHTML = message;
-  globalFeedback.style.display = 'block';
-  globalFeedback.classList.add('show', 'price-alert-container');
-
-  if (duration > 0) {
-    setTimeout(() => {
-      globalFeedback.classList.remove('show');
-      setTimeout(() => {
-        globalFeedback.style.display = 'none';
-        globalFeedback.innerHTML = '';
-      }, 300);
-    }, duration);
-  }
-}
 
 /**
  * Updates the Auto-Depart settings label with status text.
@@ -477,7 +420,6 @@ async function checkAutoDepartAll(settings) {
   try {
     // 1. Get current bunker state
     const bunkerState = getCurrentBunkerState();
-    const fuelPrice = bunkerState.fuelPrice;
     const currentFuel = bunkerState.currentFuel;
 
     // Check if fuel went back above threshold

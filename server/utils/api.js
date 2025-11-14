@@ -522,7 +522,7 @@ async function initializeAlliance() {
         ALLIANCE_ID = null;
         logger.debug(`[Session] User is not in an alliance`);
       }
-    } catch (allianceError) {
+    } catch {
       ALLIANCE_ID = null;
       logger.debug(`[Session] User is not in an alliance`);
     }

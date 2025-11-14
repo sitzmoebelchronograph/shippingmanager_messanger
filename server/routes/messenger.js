@@ -43,10 +43,8 @@ const express = require('express');
 const validator = require('validator');
 const { apiCall, getUserId, getUserCompanyName } = require('../utils/api');
 const { messageLimiter } = require('../middleware');
-const chatBot = require('../chatbot');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -450,7 +448,7 @@ router.post('/messenger/delete-chat', express.json(), async (req, res) => {
     // If case_id is provided, delete the corresponding history file
     if (case_id) {
       const userId = getUserId();
-      const fs = require('fs');
+      // (using fs and path imported at top of file)
       const historyDir = path.join(DATA_DIR, 'hijack_history');
       const historyFile = path.join(historyDir, `${userId}-${case_id}.json`);
 
@@ -571,8 +569,7 @@ router.get('/hijacking/history/:caseId', (req, res) => {
   }
 
   const userId = getUserId();
-  const fs = require('fs');
-  const path = require('path');
+  // (using fs and path imported at top of file)
 
   const historyDir = path.join(DATA_DIR, 'hijack_history');
   const historyFile = path.join(historyDir, `${userId}-${caseId}.json`);
@@ -626,8 +623,7 @@ router.post('/hijacking/history/:caseId', express.json(), (req, res) => {
 
   const { history } = req.body;
   const userId = getUserId();
-  const fs = require('fs');
-  const path = require('path');
+  // (using fs and path imported at top of file)
 
   const historyDir = path.join(DATA_DIR, 'hijack_history');
   const historyFile = path.join(historyDir, `${userId}-${caseId}.json`);

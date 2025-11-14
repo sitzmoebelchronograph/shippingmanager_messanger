@@ -6,7 +6,7 @@
  * @module harbor-map-init
  */
 
-import { initMap, loadOverview, setPortFilter, deselectAll, updateWeatherDataSetting } from './harbor-map/map-controller.js';
+import { initMap, loadOverview, updateWeatherDataSetting } from './harbor-map/map-controller.js';
 import { prefetchHarborMapData, invalidateOverviewCache } from './harbor-map/api-client.js';
 import { initializeMapIconBar } from './map-icon-bar.js';
 

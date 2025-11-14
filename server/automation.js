@@ -22,7 +22,6 @@ const SETTINGS_FILE = path.join(getSettingsDir(), 'settings.json');
 
 // Auto-repair timer
 let autoRepairTimer = null;
-let lastAutoRepairCheck = null;
 
 /**
  * Parse interval string to get min/max hours

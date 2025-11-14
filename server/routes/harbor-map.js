@@ -22,18 +22,19 @@
  */
 
 const express = require('express');
-const { apiCall } = require('../utils/api');
+const { getUserId } = require('../utils/api');
 const gameapi = require('../gameapi');
 const logger = require('../utils/logger');
 const config = require('../config');
+const { enrichHistoryWithFees } = require('../utils/harbor-fee-store');
+const { migrateHarborFeesForUser } = require('../utils/migrate-harbor-fees');
 
 const {
   aggregateVesselData,
   aggregateReachablePorts,
   categorizeVesselsByPort,
   filterAssignedPorts,
-  extractPortsFromGameIndex,
-  extractVesselsFromGameIndex
+  extractPortsFromGameIndex
 } = require('./harbor-map-aggregator');
 
 const router = express.Router();
@@ -394,6 +395,7 @@ router.get('/port/:portCode', async (req, res) => {
 router.get('/vessel/:vesselId/history', async (req, res) => {
   try {
     const vesselId = parseInt(req.params.vesselId);
+    const userId = getUserId();
 
     logger.debug(`[Harbor Map] Fetching history for vessel ${vesselId}`);
 
@@ -407,9 +409,12 @@ router.get('/vessel/:vesselId/history', async (req, res) => {
 
     logger.debug(`[Harbor Map] Found ${historyResponse.data.vessel_history.length} history entries for vessel ${vesselId}`);
 
+    // Enrich history with harbor fees from our storage
+    const enrichedHistory = await enrichHistoryWithFees(userId, historyResponse.data.vessel_history);
+
     // Transform API response to match frontend expectations
     res.json({
-      history: historyResponse.data.vessel_history.map(trip => ({
+      history: enrichedHistory.map(trip => ({
         date: trip.created_at,
         origin: trip.route_origin,
         destination: trip.route_destination,
@@ -418,7 +423,8 @@ router.get('/vessel/:vesselId/history', async (req, res) => {
         distance: trip.total_distance,
         fuel_used: trip.fuel_used,
         wear: trip.wear,
-        duration: trip.duration
+        duration: trip.duration,
+        harbor_fee: trip.harbor_fee
       }))
     });
   } catch (error) {
@@ -567,7 +573,7 @@ function formatHistoryAsTXT(vessel, history) {
     txt += `\n`;
 
     txt += `Financials:\n`;
-    txt += `  Income: $${trip.route_income?.toLocaleString() || '0'}\n`;
+    txt += `  Income: $${trip.route_income.toLocaleString()}\n`;
     txt += `  Fuel Used: ${trip.fuel_used} tons\n`;
     txt += `  Wear: ${trip.wear}%\n`;
 
@@ -615,9 +621,9 @@ function formatHistoryAsCSV(history) {
     const cargoRef = trip.cargo?.refrigerated || '';
     const cargoFuel = trip.cargo?.fuel || '';
     const cargoCrude = trip.cargo?.crude_oil || '';
-    const income = trip.route_income || 0;
-    const fuel = trip.fuel_used || 0;
-    const wear = trip.wear || 0;
+    const income = trip.route_income;
+    const fuel = trip.fuel_used;
+    const wear = trip.wear;
 
     // Calculate revenue per nautical mile if cargo was loaded
     let revenuePerNm = '';
@@ -635,5 +641,30 @@ function formatHistoryAsCSV(history) {
 
   return csv;
 }
+
+/**
+ * POST /api/harbor-map/migrate-harbor-fees
+ * Migrates harbor fees from audit log to harbor fee storage (one-time migration)
+ *
+ * Response:
+ * { success: true, stats: { total, migrated, skipped } }
+ */
+router.post('/migrate-harbor-fees', async (req, res) => {
+  try {
+    const userId = getUserId();
+
+    logger.info(`[Harbor Map] Starting harbor fee migration for user ${userId}`);
+
+    const stats = await migrateHarborFeesForUser(userId);
+
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    logger.error('[Harbor Map] Harbor fee migration failed:', error);
+    res.status(500).json({ error: 'Migration failed', message: error.message });
+  }
+});
 
 module.exports = router;

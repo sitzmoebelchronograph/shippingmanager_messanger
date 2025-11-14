@@ -32,7 +32,7 @@ import { escapeHtml, showSideNotification, handleNotifications, showNotification
 import { getCompanyNameCached, fetchChat, sendChatMessage, fetchAllianceMembers } from './api.js';
 import { updateEventDiscount } from './forecast-calendar.js';
 import { updateEventData } from './event-info.js';
-import { lockRepairButton, unlockRepairButton, lockBulkBuyButton, unlockBulkBuyButton, lockFuelButton, unlockFuelButton, lockCo2Button, unlockCo2Button } from './vessel-management.js';
+import { lockRepairButton, unlockRepairButton, lockBulkBuyButton, unlockBulkBuyButton, lockFuelButton, unlockFuelButton, lockCo2Button, unlockCo2Button, lockDrydockButton, unlockDrydockButton, updateLockStateFromServer } from './vessel-management.js';
 import { lockCoopButtons, unlockCoopButtons } from './coop.js';
 import { showAnchorTimer } from './anchor-purchase.js';
 import { updateCurrentCash, updateCurrentFuel, updateCurrentCO2 } from './bunker-management.js';
@@ -554,7 +554,7 @@ function registerUsernameClickEvents() {
  * @param {string} data.message - Formatted message for display
  */
 function handleBackendAutoRepairComplete(data) {
-  const { count, totalCost, repairs, message } = data;
+  const { count, totalCost, repairs } = data;
 
   // Get current settings for threshold
   const settings = window.getSettings ? window.getSettings() : {};
@@ -712,6 +712,8 @@ export function initWebSocket() {
         handleCO2Purchased(data);
       } else if (type === 'autopilot_depart_start') {
         handleAutopilotDepartStart(data);
+      } else if (type === 'vessels_depart_batch') {
+        handleVesselsDepartBatch(data);
       } else if (type === 'vessels_depart_complete') {
         handleVesselsDepartComplete(data);
       } else if (type === 'vessels_departed') {
@@ -800,6 +802,14 @@ export function initWebSocket() {
         lockCo2Button();
       } else if (type === 'co2_purchase_complete') {
         unlockCo2Button();
+      } else if (type === 'drydock_start') {
+        lockDrydockButton();
+      } else if (type === 'drydock_complete') {
+        unlockDrydockButton();
+      } else if (type === 'lock_status') {
+        // Server-controlled lock state update (single source of truth)
+        // Updates client's READ-ONLY lock state from server
+        updateLockStateFromServer(data);
       }
     };
 
@@ -1176,12 +1186,26 @@ ${formatNumber(amount)}t @ $${price}/t
 }
 
 /**
+ * Handles batch departure updates (does NOT unlock button).
+ * Shows notifications for each 20-vessel batch during multi-batch departures.
+ */
+async function handleVesselsDepartBatch(data) {
+  const { succeeded } = data;
+
+  console.log(`[Autopilot] Batch update: ${succeeded.count} departed in this batch`);
+
+  // Note: NO notification for batch updates to avoid spam
+  // Bunker state is updated via separate 'bunker_update' event from backend
+  // Only the final 'vessels_depart_complete' event shows notification
+}
+
+/**
  * Handles combined vessels depart complete event from backend autopilot.
  * Shows a single notification with both succeeded and failed vessels.
+ * Unlocks the depart button after all batches complete.
  */
 async function handleVesselsDepartComplete(data) {
   const { succeeded, failed, bunker } = data;
-  const totalVessels = succeeded.count + failed.count;
 
   console.log(`[Autopilot] Depart complete: ${succeeded.count} succeeded, ${failed.count} failed`);
 
@@ -1450,12 +1474,12 @@ Fuel: ${Math.round(succeeded.totalFuelUsed)}t | CO2: ${Math.round(succeeded.tota
     });
   }
 
-  // Force immediate vessel count update and unlock depart button
-  if (window.updateVesselCount) {
-    await window.updateVesselCount();
-  }
-
-  // Explicitly unlock depart button after departure process completes
+  // Unlock depart button after departure process completes
+  // Note: Backend sends events in correct order:
+  //   1. bunker_update (updates fuel/co2/cash display)
+  //   2. vessel_count_update (updates badge with correct counts)
+  //   3. vessels_depart_complete (triggers this unlock)
+  // This ensures UI is fully updated BEFORE button becomes clickable again
   if (window.unlockDepartButton) {
     window.unlockDepartButton();
   }
@@ -2307,15 +2331,8 @@ function handleUnreadMessagesUpdate(data) {
     console.log(`[Autopilot] Messages update: ${count} unread message${count === 1 ? '' : 's'}`);
   }
 
-  const messageBadge = document.getElementById('unreadBadge');
-  if (messageBadge) {
-    messageBadge.textContent = count;
-    if (count > 0) {
-      messageBadge.classList.remove('hidden');
-    } else {
-      messageBadge.classList.add('hidden');
-    }
-  }
+  // Update badge using badge-manager
+  updateBadge('unreadBadge', count, count > 0, 'RED');
 
   // Cache value for next page load
   if (window.saveBadgeCache) {
@@ -2336,25 +2353,21 @@ function handleMessengerUpdate(data) {
     console.log(`[Messenger] 10-sec poll: ${messages} unread message${messages === 1 ? '' : 's'}`);
   }
 
-  const messageBadge = document.getElementById('unreadBadge');
-  if (messageBadge) {
-    const previousCount = parseInt(messageBadge.textContent) || 0;
-    messageBadge.textContent = messages;
-    if (messages > 0) {
-      messageBadge.classList.remove('hidden');
-    } else {
-      messageBadge.classList.add('hidden');
-    }
+  // Get previous count for notification comparison
+  const messageBadge = document.querySelector('.map-icon-item[data-action="messenger"] .map-icon-badge');
+  const previousCount = messageBadge ? (parseInt(messageBadge.textContent) || 0) : 0;
 
-    // Show notification if count increased
-    if (messages > previousCount) {
-      const settings = window.getSettings ? window.getSettings() : {};
-      if (settings.enableInboxNotifications !== false && document.hidden) {
-        showChatNotification(
-          '📬 New Message',
-          `You have ${messages - previousCount} new message${messages - previousCount === 1 ? '' : 's'}`
-        );
-      }
+  // Update badge using badge-manager
+  updateBadge('unreadBadge', messages, messages > 0, 'RED');
+
+  // Show notification if count increased
+  if (messages > previousCount) {
+    const settings = window.getSettings ? window.getSettings() : {};
+    if (settings.enableInboxNotifications !== false && document.hidden) {
+      showChatNotification(
+        '📬 New Message',
+        `You have ${messages - previousCount} new message${messages - previousCount === 1 ? '' : 's'}`
+      );
     }
   }
 
@@ -2400,24 +2413,9 @@ function handleCoopUpdate(data) {
     console.log(`[Autopilot] COOP update: ${available}/${coop_boost || cap} available`);
   }
 
-  // Update badge (green if >= 3, red if < 3)
-  const badge = document.getElementById('coopBadge');
-  if (badge) {
-    if (available > 0) {
-      badge.textContent = available;
-      badge.classList.remove('hidden');
-      // Green if >= 3, red if < 3
-      if (available >= 3) {
-        badge.classList.add('badge-green-bg');
-        badge.classList.remove('badge-red-bg');
-      } else {
-        badge.classList.add('badge-red-bg');
-        badge.classList.remove('badge-green-bg');
-      }
-    } else {
-      badge.classList.add('hidden');
-    }
-  }
+  // Update badge using badge-manager (red if available > 0, green if all slots used)
+  const color = available === 0 ? 'GREEN' : 'RED';
+  updateBadge('coopBadge', available, available > 0, color);
 
   // Update header display using centralized function
   if (window.updateCoopDisplay) {
@@ -2603,7 +2601,7 @@ async function handleHijackingUpdate(data) {
   }
 
   // Handle auto-negotiate progress updates (data.data.action exists)
-  const { action, case_id, round, your_offer, pirate_demand, pirate_counter, final_price, threshold, success, final_amount, vessel_name } = data.data || {};
+  const { action, case_id, round, your_offer, pirate_demand, pirate_counter, final_price, threshold, final_amount, vessel_name } = data.data || {};
 
   // Only show live progress notifications, not side notifications
   if (action === 'offer_submitted') {

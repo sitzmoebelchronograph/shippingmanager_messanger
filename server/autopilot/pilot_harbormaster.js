@@ -10,12 +10,8 @@
 const state = require('../state');
 const logger = require('../utils/logger');
 const { apiCall } = require('../utils/api');
-const config = require('../config');
 const { saveSettings } = require('../settings-schema');
 const { auditLog, CATEGORIES, SOURCES, formatCurrency } = require('../utils/audit-logger');
-const { isAutopilotPaused, tryUpdateAllData } = require('../autopilot');
-
-const DEBUG_MODE = config.DEBUG_MODE;
 
 // WebSocket broadcasting function (injected)
 let broadcastToUser = null;
@@ -42,11 +38,7 @@ function setBroadcastFunction(broadcastFn) {
  * @returns {Promise<void>}
  */
 async function autoAnchorPointPurchase(userId) {
-  // Check if autopilot is paused
-  if (isAutopilotPaused()) {
-    logger.debug('[Auto-Anchor Purchase] Skipped - Autopilot is PAUSED');
-    return;
-  }
+  // Pause check removed - handled by scheduler to avoid circular dependency
 
   if (!userId) return;
 
@@ -70,12 +62,12 @@ async function autoAnchorPointPurchase(userId) {
       const remaining = anchorNextBuild - now;
       const minutes = Math.floor(remaining / 60);
       const seconds = remaining % 60;
-      logger.warn(`[Auto-Anchor] ⏳ TIMER ACTIVE - Construction in progress (${minutes}m ${seconds}s remaining)`);
-      logger.warn(`[Auto-Anchor] ⛔ BLOCKED - Cannot purchase while timer is running (Game Bug: would steal money!)`);
+      logger.warn(`[Auto-Anchor] TIMER ACTIVE - Construction in progress (${minutes}m ${seconds}s remaining)`);
+      logger.warn(`[Auto-Anchor] BLOCKED - Cannot purchase while timer is running (Game Bug: would steal money!)`);
       return;
     }
 
-    logger.debug(`[Auto-Anchor] ✓ Timer Check Passed - Safe to proceed with purchase`);
+    logger.debug(`[Auto-Anchor] Timer Check Passed - Safe to proceed with purchase`);
 
 
     const bunker = state.getBunkerState(userId);
@@ -215,8 +207,7 @@ async function autoAnchorPointPurchase(userId) {
       }
     }
 
-    // Update all data
-    await tryUpdateAllData();
+    // Data will be updated by next main loop cycle (no need to call tryUpdateAllData - circular dependency)
 
   } catch (error) {
     logger.error('[Auto-Anchor] Error:', error.message);

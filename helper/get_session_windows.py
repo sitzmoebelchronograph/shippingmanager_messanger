@@ -279,15 +279,18 @@ def validate_all_sessions():
 
         print(f"[*] Validating {company_name} (ID: {user_id})...", file=sys.stderr)
 
-        # Decrypt cookie before validation
-        user_data = validate_session_cookie(encrypted_cookie, user_id)
-        if user_data:
-            # Decrypt for return value (caller needs plaintext cookie)
-            if is_encrypted(encrypted_cookie):
-                plaintext_cookie = decrypt_cookie(encrypted_cookie, user_id)
-            else:
-                plaintext_cookie = encrypted_cookie
+        # Check if we can decrypt the cookie first (credential must exist)
+        if is_encrypted(encrypted_cookie):
+            plaintext_cookie = decrypt_cookie(encrypted_cookie, user_id)
+            if not plaintext_cookie:
+                print(f"  Skipped (Credential missing - cannot decrypt)", file=sys.stderr)
+                continue  # Skip this session entirely - do not add to valid or expired
+        else:
+            plaintext_cookie = encrypted_cookie
 
+        # Decrypt cookie before validation
+        user_data = validate_session_cookie(plaintext_cookie, user_id)
+        if user_data:
             print(f"  Valid", file=sys.stderr)
             valid_sessions.append({
                 'user_id': user_id,
@@ -1208,14 +1211,6 @@ def browser_login():
         debug_log.append(f"   Length: {len(cookie)}")
         debug_log.append(f"   Contains %: {('%' in cookie)}")
 
-        # Write debug log to file
-        debug_file = os.path.join(os.path.dirname(__file__), '..', 'debuggingsession.txt')
-        try:
-            with open(debug_file, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(debug_log))
-            print(f"[DEBUG] Cookie debug log written to: {debug_file}", file=sys.stderr)
-        except Exception as e:
-            print(f"[DEBUG] Could not write debug log: {e}", file=sys.stderr)
 
         print("[+] Browser login successful!", file=sys.stderr)
         return cookie
@@ -1366,11 +1361,6 @@ def main(save_only=False):
                                         debug_append.append(f"   Contains %: {('%' in retrieved_cookie)}")
                                         debug_append.append(f"   MATCHES INPUT: {retrieved_cookie == renewal_cookie}")
 
-                                        # Append to existing debug file
-                                        debug_file = os.path.join(os.path.dirname(__file__), '..', 'debuggingsession.txt')
-                                        with open(debug_file, 'a', encoding='utf-8') as f:
-                                            f.write('\n' + '\n'.join(debug_append))
-                                        print(f"[DEBUG] Save/retrieve test appended to debug log", file=sys.stderr)
                             except Exception as e:
                                 print(f"[DEBUG] Could not test save/retrieve: {e}", file=sys.stderr)
 
@@ -1574,11 +1564,6 @@ def main(save_only=False):
                 debug_append.append(f"   Contains %: {('%' in retrieved_cookie)}")
                 debug_append.append(f"   MATCHES INPUT: {retrieved_cookie == cookie}")
 
-                # Append to existing debug file
-                debug_file = os.path.join(os.path.dirname(__file__), '..', 'debuggingsession.txt')
-                with open(debug_file, 'a', encoding='utf-8') as f:
-                    f.write('\n' + '\n'.join(debug_append))
-                print(f"[DEBUG] Save/retrieve test appended to debug log", file=sys.stderr)
     except Exception as e:
         print(f"[DEBUG] Could not test save/retrieve: {e}", file=sys.stderr)
 

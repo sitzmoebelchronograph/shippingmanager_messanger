@@ -48,8 +48,8 @@ export async function updateCoopBadge() {
       return;
     }
 
-    // Update button badge using badge-manager (green if >= 3, red if < 3)
-    const color = coop.available >= 3 ? 'GREEN' : 'RED';
+    // Update button badge using badge-manager (red if available > 0, green if all slots used)
+    const color = coop.available === 0 ? 'GREEN' : 'RED';
     updateBadge('coopBadge', coop.available, coop.available > 0, color);
 
     // Header display is handled by badge only - no separate display needed

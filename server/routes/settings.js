@@ -68,7 +68,7 @@
 const express = require('express');
 const router = express.Router();
 const fs = require('fs').promises;
-const { broadcast, broadcastToUser } = require('../websocket');
+const { broadcastToUser } = require('../websocket');
 const { getSettingsFilePath, validateSettings } = require('../settings-schema');
 const { getUserId } = require('../utils/api');
 const logger = require('../utils/logger');
@@ -272,7 +272,6 @@ router.post('/settings', async (req, res) => {
     // ALWAYS update schedulers when settings are saved (not just when changed)
     // This ensures schedulers use current settings without hard-coded defaults
     try {
-      const scheduler = require('../scheduler');
       const chatBot = require('../chatbot');
 
       logger.debug(`[Settings] ========================================`);

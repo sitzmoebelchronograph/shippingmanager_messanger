@@ -15,10 +15,6 @@ export async function showAnchorPurchaseDialog() {
   const feed = document.getElementById('anchorPurchaseFeed');
   const closeBtn = document.getElementById('closeAnchorPurchaseBtn');
 
-  // Get anchor count from map icon badge
-  const anchorBadge = document.querySelector('.map-icon-item[data-action="anchor"] .map-icon-badge');
-  const vesselsAtAnchor = anchorBadge ? (parseInt(anchorBadge.textContent) || 0) : 0;
-
   // Show overlay
   overlay.classList.remove('hidden');
 
@@ -68,9 +64,6 @@ export async function showAnchorPurchaseDialog() {
         return `${minutes}m`;
       }
     };
-
-    const buildTime1 = formatBuildTime(buildDuration);
-    const buildTime10 = formatBuildTime(buildDuration * 10);
 
     // Render purchase form with relative positioning for overlay
       feed.innerHTML = `
