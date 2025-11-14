@@ -71,13 +71,13 @@ echo "[OK] Bandit passed"
 echo ""
 
 # 4. Run C# Security Code Scan (if installer project exists)
-if [ -f "installer/ShippingManagerCoPilot.Installer.csproj" ]; then
+if [ -f "helper/installer/ShippingManagerCoPilot.Installer.csproj" ]; then
   echo "[5/5] Running C# Security Code Scan..."
-  if ! dotnet build installer/ShippingManagerCoPilot.Installer.csproj -c Release /p:TreatWarningsAsErrors=true /p:WarningsAsErrors=SCS0001,SCS0002,SCS0003,SCS0004,SCS0005,SCS0006,SCS0007,SCS0008,SCS0009,SCS0010 --no-restore 2>&1 | grep -E "(error SCS|Build FAILED)" > /dev/null; then
+  if ! dotnet build helper/installer/ShippingManagerCoPilot.Installer.csproj -c Release /p:TreatWarningsAsErrors=true /p:WarningsAsErrors=SCS0001,SCS0002,SCS0003,SCS0004,SCS0005,SCS0006,SCS0007,SCS0008,SCS0009,SCS0010 --no-restore 2>&1 | grep -E "(error SCS|Build FAILED)" > /dev/null; then
     echo "[OK] C# Security Code Scan passed"
   else
     echo "[BLOCKED] SecurityCodeScan found security issues in C# code!"
-    echo "   Review with: cd installer && dotnet build -c Release"
+    echo "   Review with: cd helper/installer && dotnet build -c Release"
     exit 1
   fi
   echo ""
