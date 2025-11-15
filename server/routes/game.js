@@ -1833,7 +1833,8 @@ router.get('/version/check', async (req, res) => {
     }
 
     // Read current version from package.json
-    const packageJson = JSON.parse(await fs.readFile('./package.json', 'utf8'));
+    // Use require() instead of fs.readFile() - works in both dev and pkg
+    const packageJson = require('../../package.json');
     const currentVersion = packageJson.version;
 
     // Fetch latest release from GitHub
@@ -1880,7 +1881,7 @@ router.get('/version/check', async (req, res) => {
 
     // Return current version even if GitHub check fails
     try {
-      const packageJson = JSON.parse(await fs.readFile('./package.json', 'utf8'));
+      const packageJson = require('../../package.json');
       res.json({
         currentVersion: packageJson.version,
         latestVersion: packageJson.version,
