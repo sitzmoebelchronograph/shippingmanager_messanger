@@ -1,6 +1,6 @@
 {
   "name": "shippingmanager-copilot",
-  "version": "0.1.4.2",
+  "version": "0.1.4.3",
   "description": "Standalone web interface for Shipping Manager chat and game management",
   "main": "app.js",
   "bin": "app.js",
@@ -40,8 +40,7 @@
       "jsdoc.json"
     ],
     "scripts": [
-      "server/**/*.js",
-      "public/js/**/*.js"
+      "server/**/*.js"
     ],
     "outputPath": "dist"
   },
@@ -55,13 +54,8 @@
     "helmet": "^8.1.0",
     "image-size": "^2.0.2",
     "keytar": "^7.9.0",
-    "leaflet": "^1.9.4",
-    "leaflet-environmental-layers": "^2.4.9",
-    "leaflet.markercluster": "^1.5.3",
     "node-cron": "^4.2.1",
     "node-forge": "^1.3.1",
-    "page-flip": "^2.0.7",
-    "react-pageflip": "^2.0.3",
     "selenium-webdriver": "^4.38.0",
     "validator": "^13.15.20",
     "winston": "^3.18.3",
@@ -74,6 +68,11 @@
     "eslint": "^9.39.0",
     "eslint-plugin-security": "^3.0.1",
     "husky": "^9.1.7",
-    "jsdoc": "^4.0.5"
+    "jsdoc": "^4.0.5",
+    "leaflet": "^1.9.4",
+    "leaflet-environmental-layers": "^2.4.9",
+    "leaflet.markercluster": "^1.5.3",
+    "page-flip": "^2.0.7",
+    "react-pageflip": "^2.0.3"
   }
 }
