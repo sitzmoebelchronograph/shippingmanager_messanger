@@ -355,6 +355,7 @@ function renderLogTable() {
     const transactionType = getTransactionType(entry);
     const transactionClass = transactionType ? `logbook-${transactionType}` : '';
 
+    // Always render details row (hidden by default) for instant expand/collapse
     return `
       <tr class="logbook-row ${isExpanded ? 'expanded' : ''} ${transactionClass}" data-id="${entry.id}">
         <td class="logbook-status ${statusClass}">${statusIcon}</td>
@@ -362,29 +363,55 @@ function renderLogTable() {
         <td class="logbook-autopilot">${escapeHtml(entry.autopilot)}</td>
         <td class="logbook-summary">${escapeHtml(entry.summary)}</td>
       </tr>
-      ${isExpanded ? renderDetailsRow(entry) : ''}
+      <tr class="logbook-details-row ${isExpanded ? '' : 'hidden'}" data-details-for="${entry.id}">
+        <td colspan="4">
+          <div class="logbook-details">
+            <h4>Details</h4>
+            ${formatDetails(entry.details)}
+          </div>
+        </td>
+      </tr>
     `;
   }).join('');
 
-  // Add click listeners to rows
-  tbody.querySelectorAll('.logbook-row').forEach(row => {
-    row.addEventListener('click', () => {
-      const entryId = row.dataset.id;
-      toggleExpanded(entryId);
-    });
-  });
+  // Event delegation: single listener on tbody for better performance
+  // Remove old listeners first to avoid duplicates on re-render
+  tbody.onclick = null;
+  tbody.ondblclick = null;
 
-  // Add double-click listeners to details rows to collapse
-  tbody.querySelectorAll('.logbook-details-row').forEach(detailsRow => {
-    detailsRow.addEventListener('dblclick', () => {
-      // Find the previous row (the main logbook-row) to get the entry ID
-      const mainRow = detailsRow.previousElementSibling;
-      if (mainRow && mainRow.classList.contains('logbook-row')) {
-        const entryId = mainRow.dataset.id;
-        toggleExpanded(entryId);
-      }
-    });
-  });
+  tbody.onclick = (e) => {
+    const row = e.target.closest('.logbook-row');
+    if (!row) return;
+
+    const entryId = row.dataset.id;
+    const detailsRow = row.nextElementSibling;
+
+    // Toggle state tracking (for re-render consistency)
+    if (expandedEntries.has(entryId)) {
+      expandedEntries.delete(entryId);
+    } else {
+      expandedEntries.add(entryId);
+    }
+
+    // Direct DOM manipulation - instant, no re-render
+    row.classList.toggle('expanded');
+    if (detailsRow && detailsRow.classList.contains('logbook-details-row')) {
+      detailsRow.classList.toggle('hidden');
+    }
+  };
+
+  tbody.ondblclick = (e) => {
+    const detailsRow = e.target.closest('.logbook-details-row');
+    if (!detailsRow) return;
+
+    const mainRow = detailsRow.previousElementSibling;
+    if (mainRow && mainRow.classList.contains('logbook-row')) {
+      const entryId = mainRow.dataset.id;
+      expandedEntries.delete(entryId);
+      mainRow.classList.remove('expanded');
+      detailsRow.classList.add('hidden');
+    }
+  };
 }
 
 /**
