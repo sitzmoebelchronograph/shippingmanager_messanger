@@ -12,7 +12,6 @@
 
 let pageFlip = null;
 let daysData = [];
-let sourceTimezone = null; // Timezone the source data is in
 let deliveredTimezone = null; // Timezone the data was delivered in
 let currentEventDiscount = null; // Current event discount {percentage, type}
 let currentEventData = null; // Full event data with time_start, time_end (UTC timestamps)
@@ -484,7 +483,6 @@ async function loadForecastData(month = null, year = null) {
 
         // Extract metadata
         if (responseData.metadata) {
-            sourceTimezone = responseData.metadata.source_timezone;
             deliveredTimezone = responseData.metadata.delivered_timezone;
         }
 

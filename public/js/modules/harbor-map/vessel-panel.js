@@ -57,7 +57,7 @@ export async function showVesselPanel(vessel) {
   let sellPrice = null;
 
   // Start fetching sell price but don't block panel display
-  const sellPricePromise = fetch(window.apiUrl('/api/vessel/get-sell-price'), {
+  fetch(window.apiUrl('/api/vessel/get-sell-price'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ vessel_id: vessel.id })
@@ -67,12 +67,12 @@ export async function showVesselPanel(vessel) {
     }
     return null;
   }).then(data => {
-    if (data && data.success && data.data && data.data.selling_price !== undefined) {
+    if (data && data.data && data.data.selling_price !== undefined) {
       sellPrice = data.data.selling_price;
       // Update the sell price display if panel is still open
       const sellPriceElement = panel.querySelector('.vessel-sell-price');
       if (sellPriceElement) {
-        sellPriceElement.innerHTML = `<strong>💵 Sell Price:</strong> $${formatNumber(sellPrice)}`;
+        sellPriceElement.innerHTML = `<strong>Sell Price:</strong> $${formatNumber(sellPrice)}`;
       }
     }
   }).catch(error => {
@@ -185,27 +185,30 @@ export async function showVesselPanel(vessel) {
         </div>
       ` : ''}
 
-      ${(vessel.status === 'port' || vessel.status === 'anchor') ? `
-        <div class="vessel-action-emojis">
-          ${vessel.status === 'port' ? `
-            <span
-              class="action-emoji"
-              onclick="window.harborMap.departVessel(${vessel.id})"
-              title="Depart vessel from port"
-            >🏁</span>
-          ` : ''}
-          <span
-            class="action-emoji"
-            onclick="window.harborMap.openRepairDialog(${vessel.id})"
-            title="Repair & Drydock - Wear: ${vessel.wear ? parseFloat(vessel.wear).toFixed(1) : 'N/A'}% | Until Drydock: ${formatNumber(vessel.hours_until_check)}h"
-          >🔧</span>
-          <span
-            class="action-emoji"
-            onclick="window.harborMap.sellVesselFromPanel(${vessel.id}, '${vessel.name.replace(/'/g, "\\'")}')"
-            title="Sell this vessel"
-          >💵</span>
-        </div>
-      ` : ''}
+      <div class="vessel-action-emojis">
+        <span
+          class="action-emoji park-toggle-btn${vessel.is_parked ? ' parked' : ' not-parked'}"
+          data-vessel-id="${vessel.id}"
+          data-is-parked="${vessel.is_parked ? 'true' : 'false'}"
+          title="Moor vessel"
+          onclick="window.harborMap.toggleParkVessel(this)"
+        >${vessel.is_parked ? '⛓️' : '🟢'}</span>
+        <span
+          class="action-emoji${vessel.status !== 'port' ? ' disabled' : ''}"
+          onclick="${vessel.status === 'port' ? `window.harborMap.departVessel(${vessel.id})` : 'return false'}"
+          title="${vessel.status === 'port' ? 'Depart vessel from port' : 'Vessel must be in port to depart'}"
+        >🏁</span>
+        <span
+          class="action-emoji"
+          onclick="window.harborMap.openRepairDialog(${vessel.id})"
+          title="Repair & Drydock - Wear: ${vessel.wear ? parseFloat(vessel.wear).toFixed(1) : 'N/A'}% | Until Drydock: ${formatNumber(vessel.hours_until_check)}h"
+        >🔧</span>
+        <span
+          class="action-emoji${vessel.status !== 'port' && vessel.status !== 'anchor' ? ' disabled' : ''}"
+          onclick="${vessel.status === 'port' || vessel.status === 'anchor' ? `window.harborMap.sellVesselFromPanel(${vessel.id}, '${vessel.name.replace(/'/g, "\\'")}'})` : 'return false'}"
+          title="${vessel.status === 'port' || vessel.status === 'anchor' ? 'Sell this vessel' : 'Vessel must be in port or anchored to sell'}"
+        >💵</span>
+      </div>
 
       <div class="vessel-info-section collapsible">
         <h4 class="section-toggle" onclick="this.parentElement.classList.toggle('collapsed')">
@@ -250,32 +253,30 @@ export async function showVesselPanel(vessel) {
             <p><strong>Fuel Rate:</strong> $${vessel.prices.fuel}/bbl</p>
             <p><strong>Crude Oil Rate:</strong> $${vessel.prices.crude_oil}/bbl</p>
           ` : ''}
+          <p class="vessel-sell-price">${sellPrice !== null ? `<strong>Sell Price:</strong> $${formatNumber(sellPrice)}` : '<strong>Sell Price:</strong> <span style="color: var(--color-text-secondary)">Loading...</span>'}</p>
           ${(() => {
             if (vessel.status !== 'enroute' || !vessel.route_distance || !vessel.capacity) return '';
 
-            let totalRevenue = 0;
             let hasLoadedCargo = false;
 
-            if (vessel.capacity_type === 'container' && vessel.capacity && vessel.prices) {
+            if (vessel.capacity_type === 'container' && vessel.capacity) {
               const dryLoaded = vessel.capacity.dry;
               const refLoaded = vessel.capacity.refrigerated;
               if (dryLoaded > 0 || refLoaded > 0) {
                 hasLoadedCargo = true;
-                totalRevenue = (dryLoaded * (vessel.prices.dry || 0)) + (refLoaded * (vessel.prices.refrigerated || 0));
               }
-            } else if (vessel.capacity_type === 'tanker' && vessel.capacity && vessel.prices) {
+            } else if (vessel.capacity_type === 'tanker' && vessel.capacity) {
               const fuelLoaded = vessel.capacity.fuel;
               const crudeLoaded = vessel.capacity.crude_oil;
               if (fuelLoaded > 0 || crudeLoaded > 0) {
                 hasLoadedCargo = true;
-                totalRevenue = (fuelLoaded * (vessel.prices.fuel || 0)) + (crudeLoaded * (vessel.prices.crude_oil || 0));
               }
             }
 
-            if (!hasLoadedCargo || totalRevenue === 0) return '';
+            if (!hasLoadedCargo) return '';
 
-            const pricePerNm = (totalRevenue / vessel.route_distance).toFixed(2);
-            return `<p><strong>Revenue per nm:</strong> $${parseFloat(pricePerNm).toLocaleString()}/nm</p>`;
+            // Revenue per nm will be filled from history data (actual API value, not calculated)
+            return `<p id="current-trip-revenue-per-nm"><strong>Revenue per nm:</strong> <span class="loading">Loading...</span></p>`;
           })()}
         </div>
       </div>
@@ -328,7 +329,6 @@ export async function showVesselPanel(vessel) {
           <div class="vessel-specs">
             <div class="vessel-spec"><strong>Type:</strong> ${vessel.type_name || 'N/A'}</div>
             <div class="vessel-spec"><strong>Capacity:</strong> ${capacityDisplay}</div>
-            <div class="vessel-spec vessel-spec-fullwidth vessel-sell-price">${sellPrice !== null ? `<strong>💵 Sell Price:</strong> $${formatNumber(sellPrice)}` : '<strong>💵 Sell Price:</strong> <span style="color: var(--color-text-secondary)">Loading...</span>'}</div>
             <div class="vessel-spec"><strong>Range:</strong> ${formatNumber(vessel.range)} nm</div>
             <div class="vessel-spec ${getCO2Class(vessel.co2_factor)}"><strong>CO2 Factor:</strong> ${vessel.co2_factor || 'N/A'}</div>
             <div class="vessel-spec ${getFuelClass(vessel.fuel_factor)}"><strong>Fuel Factor:</strong> ${vessel.fuel_factor || 'N/A'}</div>
@@ -505,6 +505,32 @@ async function loadVesselHistory(vesselId) {
     // Store full history (reverse to show newest first)
     allHistoryData = data.history.reverse();
     displayedHistoryCount = 0;
+
+    // Update current trip revenue per nm from newest history entry
+    const revenuePerNmElement = document.getElementById('current-trip-revenue-per-nm');
+    if (revenuePerNmElement && allHistoryData.length > 0) {
+      const newestTrip = allHistoryData[0];
+      if (newestTrip.profit && newestTrip.distance) {
+        // Check if cargo was loaded
+        let hasLoadedCargo = false;
+        if (newestTrip.cargo) {
+          if (newestTrip.cargo.dry > 0 || newestTrip.cargo.refrigerated > 0 ||
+              newestTrip.cargo.fuel > 0 || newestTrip.cargo.crude_oil > 0) {
+            hasLoadedCargo = true;
+          }
+        }
+        if (hasLoadedCargo) {
+          // Convert km to nautical miles (1 nm = 1.852 km)
+          const distanceNm = newestTrip.distance / 1.852;
+          const revenuePerNm = (newestTrip.profit / distanceNm).toFixed(2);
+          revenuePerNmElement.innerHTML = `<strong>Revenue per nm:</strong> $${parseFloat(revenuePerNm).toLocaleString()}/nm`;
+        } else {
+          revenuePerNmElement.remove();
+        }
+      } else {
+        revenuePerNmElement.remove();
+      }
+    }
 
     // Render first 3 trips
     renderHistoryPage();
@@ -1175,6 +1201,54 @@ async function loadVesselWeather(lat, lon) {
   }
 }
 
+/**
+ * Toggles vessel parking status (park or resume)
+ * @param {HTMLElement} buttonElement - The button element that was clicked
+ */
+async function toggleParkVessel(buttonElement) {
+  const { showSideNotification } = await import('../utils.js');
+
+  const vesselId = parseInt(buttonElement.dataset.vesselId);
+  const isParked = buttonElement.dataset.isParked === 'true';
+
+  try {
+    const endpoint = isParked ? '/api/vessel/resume-parked-vessel' : '/api/vessel/park-vessel';
+    const action = isParked ? 'resumed' : 'parked';
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vessel_id: vesselId })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      const errorMsg = data.error || data.message || `Failed to ${action} vessel`;
+      throw new Error(errorMsg);
+    }
+
+    showSideNotification(`Vessel ${action} successfully`, 'success');
+
+    // Update button state immediately
+    const newIsParked = !isParked;
+    buttonElement.dataset.isParked = newIsParked ? 'true' : 'false';
+    buttonElement.textContent = newIsParked ? '⛓️' : '🟢';
+
+    // Update CSS classes
+    if (newIsParked) {
+      buttonElement.classList.remove('not-parked');
+      buttonElement.classList.add('parked');
+    } else {
+      buttonElement.classList.remove('parked');
+      buttonElement.classList.add('not-parked');
+    }
+  } catch (error) {
+    console.error(`[Toggle Park Vessel] Error:`, error);
+    showSideNotification(`Failed to ${isParked ? 'resume' : 'park'} vessel: ${error.message}`, 'error');
+  }
+}
+
 // Expose functions to window for onclick handlers
 window.harborMap = window.harborMap || {};
 window.harborMap.closeVesselPanel = closeVesselPanel;
@@ -1184,3 +1258,4 @@ window.harborMap.openRepairDialog = openRepairDialog;
 window.harborMap.toggleExportMenu = toggleExportMenu;
 window.harborMap.exportHistoryFormat = exportHistoryFormat;
 window.harborMap.startRenameVessel = startRenameVessel;
+window.harborMap.toggleParkVessel = toggleParkVessel;

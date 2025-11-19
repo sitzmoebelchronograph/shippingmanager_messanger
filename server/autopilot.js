@@ -16,7 +16,7 @@
 const gameapi = require('./gameapi');
 const state = require('./state');
 const cache = require('./cache');
-const { getUserId, apiCall } = require('./utils/api');
+const { getUserId, apiCall, checkAndUpdateAllianceId } = require('./utils/api');
 const logger = require('./utils/logger');
 
 // Import pilot modules
@@ -425,6 +425,16 @@ async function updateAllData() {
             company_type: user.company_type
           });
         }
+
+        // Broadcast staff training points for level-ups
+        if (user.staff_training_points !== undefined) {
+          broadcastToUser(userId, 'staff_training_points_update', {
+            staff_training_points: user.staff_training_points,
+            ceo_level: user.ceo_level,
+            experience_points: user.experience_points,
+            levelup_experience_points: user.levelup_experience_points
+          });
+        }
       }
     }
 
@@ -714,6 +724,9 @@ async function mainEventLoop() {
       setTimeout(mainEventLoop, LOOP_INTERVAL);
       return;
     }
+
+    // Check for alliance changes (user may have switched alliances)
+    await checkAndUpdateAllianceId();
 
     // Fetch vessel data for badges
     const gameIndexData = await apiCall('/game/index', 'POST', {});

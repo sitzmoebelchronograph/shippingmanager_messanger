@@ -11,12 +11,18 @@
     <link rel="stylesheet" href="/css/header.css">
     <link rel="stylesheet" href="/css/chat.css">
     <link rel="stylesheet" href="/css/overlays.css">
+    <link rel="stylesheet" href="/css/company-profile.css">
     <link rel="stylesheet" href="/css/notifications.css">
     <link rel="stylesheet" href="/css/vessels.css">
     <link rel="stylesheet" href="/css/depart-manager.css">
     <link rel="stylesheet" href="/css/price-display.css">
     <link rel="stylesheet" href="/css/autopilot.css">
     <link rel="stylesheet" href="/css/campaigns.css">
+    <link rel="stylesheet" href="/css/alliance-coop.css">
+    <link rel="stylesheet" href="/css/alliance-info.css">
+    <link rel="stylesheet" href="/css/alliance-league.css">
+    <link rel="stylesheet" href="/css/alliance-search.css">
+    <link rel="stylesheet" href="/css/alliance-management.css">
     <link rel="stylesheet" href="/css/logbook.css">
     <link rel="stylesheet" href="/css/harbor-map.css">
     <link rel="stylesheet" href="/css/settings.css">
@@ -183,7 +189,7 @@
                         📊
                         <span class="map-icon-badge hidden"></span>
                     </div>
-                    <div class="map-icon-item" data-action="coop" title="Alliance Cooperation" style="display: none;">
+                    <div class="map-icon-item" data-action="coop" title="Cargo Comedy">
                         🤝
                         <span class="map-icon-badge hidden"></span>
                     </div>
@@ -421,6 +427,21 @@
         </div>
     </div>
 
+    <div id="companyProfileOverlay" class="overlay hidden">
+        <div class="messenger-window">
+            <div class="messenger-header">
+                <h2 id="companyProfileTitle">My Company</h2>
+                <button id="companyProfileCloseBtn" class="close-btn" onmouseover="this.querySelector('span').style.animation='pulse-arrow 0.6s ease-in-out infinite'" onmouseout="this.querySelector('span').style.animation='none'"><span>×</span></button>
+            </div>
+            <div class="company-profile-search">
+                <input type="text" id="companyProfileSearchInput" placeholder="Search player..." maxlength="50" />
+                <button id="companyProfileSearchBtn" class="back-btn">Search</button>
+            </div>
+            <div id="companyProfileContent" class="company-profile-content">
+            </div>
+        </div>
+    </div>
+
     <div id="hijackingOverlay" class="overlay hidden">
         <div class="messenger-window messenger-window-narrow">
             <div class="messenger-header">
@@ -509,14 +530,69 @@
     </div>
 
     <div id="coopOverlay" class="overlay hidden">
-        <div class="messenger-window messenger-window-narrow">
+        <div class="messenger-window">
             <div class="messenger-header">
-                <h2>🤝 Alliance Cooperation</h2>
+                <h2>🤝 Cargo Comedy</h2>
                 <button id="closeCoopBtn" class="close-btn" onmouseover="this.querySelector('span').style.animation='pulse-arrow 0.6s ease-in-out infinite'" onmouseout="this.querySelector('span').style.animation='none'"><span>×</span></button>
             </div>
-            <div class="messenger-feed" style="padding: 20px; overflow-y: auto;">
-                <div id="coopContent" style="max-width: 800px; margin: 0 auto;">
-                    <!-- Content will be populated by JavaScript -->
+            <div class="messenger-feed alliance-coop-feed">
+                <div class="alliance-coop-container">
+                    <!-- Tab Navigation -->
+                    <div class="tab-buttons alliance-coop-tabs">
+                        <button class="tab-button tab-active" data-tab="allianz">Allianz</button>
+                        <button class="tab-button" data-tab="coop">Coop<span id="coopTabBadge" class="tab-badge" style="display: none;"></span></button>
+                        <button class="tab-button" data-tab="liga">Liga</button>
+                        <button class="tab-button" data-tab="highscore">HighScore</button>
+                        <button class="tab-button" data-tab="search">Search<span id="searchTabBadge" class="tab-badge" style="display: none;"></span></button>
+                        <button class="tab-button" data-tab="management">Management</button>
+                        <button class="tab-button" data-tab="settings">Settings</button>
+                        <div class="alliance-pool-buttons">
+                            <button id="anyAlliancePoolBtn" class="vessel-filter-btn pool-join-btn" style="display: none;">Apply for Any Alliance</button>
+                        </div>
+                    </div>
+
+                    <!-- Tab Contents -->
+                    <div id="allianzTabContent" class="tab-content tab-active">
+                        <div id="allianzContent" class="alliance-tab-content">
+                            <!-- Alliance info will be populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div id="coopTabContent" class="tab-content">
+                        <div id="coopContent" class="alliance-tab-content">
+                            <!-- Coop content will be populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div id="ligaTabContent" class="tab-content">
+                        <div id="ligaContent" class="alliance-tab-content">
+                            <!-- Liga content will be populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div id="highscoreTabContent" class="tab-content">
+                        <div id="highscoreContent" class="alliance-tab-content">
+                            <!-- High Score content will be populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div id="searchTabContent" class="tab-content">
+                        <div id="searchContent" class="alliance-tab-content">
+                            <!-- Search content will be populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div id="managementTabContent" class="tab-content">
+                        <div id="managementContent" class="alliance-tab-content">
+                            <!-- Management content will be populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div id="settingsTabContent" class="tab-content">
+                        <div id="allianceSettingsContent" class="alliance-tab-content">
+                            <!-- Alliance Settings content will be populated by JavaScript -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1200,7 +1276,7 @@
                                     <!-- Daily Forecast Toggle -->
                                     <div style="padding: 10px; background: rgba(31, 41, 55, 0.5); border-radius: 6px;">
                                         <label style="display: flex; align-items: center; cursor: pointer;">
-                                            <input type="checkbox" id="dailyForecastEnabled" style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;">
+                                            <input type="checkbox" id="enableDailyForecast" style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;">
                                             <span style="color: #e0e0e0; font-size: 14px; font-weight: 500;">📅 Daily Forecast (auto-post)</span>
                                         </label>
                                     </div>
@@ -1235,7 +1311,28 @@
                                 </div>
                             </div>
 
-                            <!-- Box 4: Custom Commands -->
+                            <!-- Box 4: Welcome Command Settings -->
+                            <div id="welcomeCommandSettingsBox" style="padding: 16px; background: rgba(31, 41, 55, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; display: none;">
+                                <h4 style="margin: 0 0 12px 0; color: #a78bfa; font-size: 14px; font-weight: 600;">Welcome Command Settings</h4>
+                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                    <!-- Welcome Command Toggle -->
+                                    <div style="padding: 10px; background: rgba(31, 41, 55, 0.5); border-radius: 6px;">
+                                        <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 8px;">
+                                            <input type="checkbox" id="cmdWelcome" style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;">
+                                            <span style="color: #e0e0e0; font-size: 14px; font-weight: 500;">👋 Welcome Command</span>
+                                        </label>
+                                        <p style="margin: 0 0 8px 28px; color: #9ca3af; font-size: 12px; line-height: 1.4;">
+                                            Usage: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px; color: #fbbf24;">!welcome @Username</code><br>
+                                            Sends your configured welcome message to a specific user via DM.<br>
+                                            Type <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">@Username</code> in alliance chat, which converts to <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">[UserID]</code>.<br>
+                                            <strong style="color: #fbbf24;">Admin Only:</strong> CEO, COO, Management, Interim CEO<br>
+                                            Configure the message in Alliance &gt; Management tab.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Box 5: Custom Commands -->
                             <div style="padding: 16px; background: rgba(31, 41, 55, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px;">
                                 <h4 style="margin: 0 0 12px 0; color: #a78bfa; font-size: 14px; font-weight: 600;">Custom Commands</h4>
                                 <div style="padding: 10px; background: rgba(31, 41, 55, 0.5); border-radius: 6px;">

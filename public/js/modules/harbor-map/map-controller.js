@@ -855,7 +855,10 @@ function addCustomControls() {
             case 'wind':
               // Higher opacity in standard mode for better visibility
               const windOpacity = currentMapStyle === 'standard' ? 0.6 : 0.4;
-              envLayer = L.OWM.wind({opacity: windOpacity});
+              envLayer = L.OWM.wind({
+                opacity: windOpacity,
+                showLegend: false
+              });
               envLayer.addTo(map);
               break;
             case 'clouds':
@@ -865,7 +868,7 @@ function addCustomControls() {
             case 'temperature':
               // Higher opacity in standard mode for better visibility
               const tempOpacity = currentMapStyle === 'standard' ? 0.6 : 0.4;
-              envLayer = L.OWM.temperature({showLegend: true, opacity: tempOpacity});
+              envLayer = L.OWM.temperature({showLegend: false, opacity: tempOpacity});
               envLayer.addTo(map);
               break;
           }
@@ -1416,7 +1419,10 @@ function addCustomControls() {
       case 'wind':
         // Higher opacity in standard mode for better visibility
         const windOpacity = currentMapStyle === 'standard' ? 0.6 : 0.4;
-        envLayer = L.OWM.wind({opacity: windOpacity});
+        envLayer = L.OWM.wind({
+          opacity: windOpacity,
+          showLegend: false
+        });
         if (envLayer) {
           envLayer.addTo(map);
         }
@@ -1430,7 +1436,7 @@ function addCustomControls() {
       case 'temperature':
         // Higher opacity in standard mode for better visibility
         const tempOpacity = currentMapStyle === 'standard' ? 0.6 : 0.4;
-        envLayer = L.OWM.temperature({showLegend: true, opacity: tempOpacity});
+        envLayer = L.OWM.temperature({showLegend: false, opacity: tempOpacity});
         if (envLayer) {
           envLayer.addTo(map);
         }
@@ -1540,7 +1546,7 @@ export function renderVessels(vessels) {
       const path = isReversed
         ? vessel.routes[0].path.slice().reverse()
         : vessel.routes[0].path;
-      console.log(`[Heading Debug] Vessel ${vessel.name}: reversed=${isReversed}, path[0]=${JSON.stringify(path[0])}, path[last]=${JSON.stringify(path[path.length-1])}, position=${JSON.stringify(vessel.position)}`);
+      // console.log(`[Heading Debug] Vessel ${vessel.name}: reversed=${isReversed}, path[0]=${JSON.stringify(path[0])}, path[last]=${JSON.stringify(path[path.length-1])}, position=${JSON.stringify(vessel.position)}`);
       // Find current position in path and calculate heading to next point
       for (let i = 0; i < path.length - 1; i++) {
         const point = path[i];
@@ -1554,7 +1560,7 @@ export function renderVessels(vessels) {
             nextIndex++;
           }
           heading = calculateHeading(point, path[nextIndex]);
-          console.log(`[Heading Debug] Found position at index ${i}, using next point at index ${nextIndex}, heading=${heading}`);
+          // console.log(`[Heading Debug] Found position at index ${i}, using next point at index ${nextIndex}, heading=${heading}`);
           break;
         }
       }
@@ -1567,7 +1573,7 @@ export function renderVessels(vessels) {
           nextIndex++;
         }
         heading = calculateHeading(path[0], path[nextIndex]);
-        console.log(`[Heading Debug] Position not found in path, using fallback with index ${nextIndex}, heading=${heading}`);
+        // console.log(`[Heading Debug] Position not found in path, using fallback with index ${nextIndex}, heading=${heading}`);
       }
     }
 

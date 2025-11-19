@@ -8,6 +8,9 @@
  */
 
 const logger = require('../utils/logger');
+const fs = require('fs').promises;
+const { getUserId, getAllianceName } = require('../utils/api');
+const { getSettingsFilePath } = require('../settings-schema');
 
 /**
  * Handle forecast command
@@ -154,6 +157,13 @@ async function handleHelpCommand(userId, userName, config, isDM, settings, sendR
         helpText += `${prefix}help\n\n`;
     }
 
+    if (settings.commands.welcome?.enabled) {
+        helpText += `👉 Send welcome message\n\n`;
+        helpText += `${prefix}welcome @Username\n`;
+        helpText += `Type @Username in chat (converts to [UserID])\n`;
+        helpText += `⚠️ Admin only: CEO, COO, Management, Interim CEO\n\n`;
+    }
+
     // Custom commands
     for (const cmd of settings.customCommands || []) {
         if (cmd.enabled) {
@@ -171,8 +181,66 @@ async function handleHelpCommand(userId, userName, config, isDM, settings, sendR
     await sendResponseFn(helpText, config.responseType || 'public', userId, isDM);
 }
 
+/**
+ * Handle welcome command - sends welcome message to a specific user
+ * Only usable by management members (CEO, COO, Management, Interim CEO)
+ * @param {Array<string>} args - Command arguments [targetUserId]
+ * @param {string} userName - User name of command caller
+ */
+async function handleWelcomeCommand(args, userName) {
+    // This command only works for the bot owner (management check is done by adminOnly flag)
+    let targetUserId = args[0];
+
+    if (!targetUserId) {
+        logger.error('[ChatBot] Welcome command missing user ID argument');
+        return;
+    }
+
+    // Strip brackets if present (game chat wraps numbers in brackets)
+    if (/^\[\d+\]$/.test(targetUserId)) {
+        targetUserId = targetUserId.slice(1, -1); // Remove [ and ]
+    }
+
+    // Validate user ID is numeric
+    if (!/^\d+$/.test(targetUserId)) {
+        logger.error(`[ChatBot] Welcome command invalid user ID: ${targetUserId}`);
+        return;
+    }
+
+    try {
+        // Load welcome message from bot owner's settings
+        const botOwnerId = getUserId();
+        const settingsPath = getSettingsFilePath(botOwnerId);
+        const data = await fs.readFile(settingsPath, 'utf8');
+        const settings = JSON.parse(data);
+
+        // Get alliance name for variable replacement
+        const allianceName = getAllianceName() || 'our Alliance';
+
+        // Load subject and message from settings
+        let welcomeSubject = settings.allianceWelcomeSubject ||
+            'Welcome to [allianceName]';
+        let welcomeMessage = settings.allianceWelcomeMessage ||
+            'Welcome to our Alliance!\nJoin the Ally Chat and say Hello :)';
+
+        // Replace [allianceName] variable in subject and message
+        welcomeSubject = welcomeSubject.replace(/\[allianceName\]/g, allianceName);
+        welcomeMessage = welcomeMessage.replace(/\[allianceName\]/g, allianceName);
+
+        // Send welcome message as DM to target user with custom subject
+        // Use dynamic require to avoid circular dependency
+        const { sendPrivateMessage } = require('./sender');
+        await sendPrivateMessage(targetUserId, welcomeSubject, welcomeMessage);
+
+        logger.debug(`[ChatBot] Welcome message sent to user ${targetUserId} by ${userName}`);
+    } catch (error) {
+        logger.error('[ChatBot] Error sending welcome message:', error);
+    }
+}
+
 module.exports = {
     handleForecastCommand,
     generateForecastText,
-    handleHelpCommand
+    handleHelpCommand,
+    handleWelcomeCommand
 };

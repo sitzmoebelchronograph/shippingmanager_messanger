@@ -21,13 +21,15 @@ import { openSellVesselsOverlay, closeSellVesselsOverlay, setSellFilter, showSel
 import { loadMessages, sendMessage, handleMessageInput, loadAllianceMembers, initWebSocket, setChatScrollListener, markAllianceChatAsRead } from '../chat.js';
 import { openMessenger, openNewChat, closeMessenger, closeChatSelection, showAllChats, closeAllChats, updateUnreadBadge, sendPrivateMessage, getCurrentPrivateChat, deleteCurrentChat } from '../messenger.js';
 import { openHijackingInbox, closeHijackingInbox, updateHijackingBadge, updateHijackedVesselsDisplay } from '../hijacking.js';
-import { showSettings, closeSettings, showCampaignsOverlay, closeCampaignsOverlay, buyCampaign, showContactList, closeContactList, showAnchorInfo, showConfirmDialog } from '../ui-dialogs.js';
-import { showCoopOverlay, closeCoopOverlay, sendCoopMax } from '../coop.js';
+import { showSettings, closeSettings, showCampaignsOverlay, closeCampaignsOverlay, buyCampaign, showContactList, closeContactList, showAnchorInfo } from '../ui-dialogs.js';
+import { closeCoopOverlay, sendCoopMax } from '../coop.js';
+import { showAllianceCoopOverlay, closeAllianceCoopOverlay, initAllianceTabs, updateCoopTabBadge, showAllAllianceUI, hideAllAllianceUI, switchTab, clearAllianceTabCache } from '../alliance-tabs.js';
 import { initForecastCalendar, updateEventDiscount } from '../forecast-calendar.js';
-import { initEventInfo, updateEventData } from '../event-info.js';
+import { initEventInfo } from '../event-info.js';
 import { initLogbook, prependLogEntry } from '../logbook.js';
 import { initHarborMap } from '../harbor-map-init.js';
-import { showSideNotification, showNotification, escapeHtml } from '../utils.js';
+import { initCompanyProfile } from '../company-profile.js';
+import { showSideNotification, showNotification } from '../utils.js';
 
 /**
  * Format number with thousand separators.
@@ -88,7 +90,7 @@ export async function initializeApp(apiPrefix) {
   initializeSettingsUI(settings);
 
   // Load user settings (CEO level, points)
-  await loadUserSettings(settings);
+  await loadUserSettings();
 
   // STEP 2: Register Service Worker
   await registerServiceWorker();
@@ -127,6 +129,8 @@ export async function initializeApp(apiPrefix) {
   // STEP 9: Initialize modules
   initEventInfo();
   initLogbook();
+  initCompanyProfile();
+  initAllianceTabs();
 
   // Initialize harbor map (async, don't block)
   initHarborMap().catch(error => {
@@ -146,7 +150,7 @@ export async function initializeApp(apiPrefix) {
   await triggerPriceAlertCheck(window.DEBUG_MODE);
 
   // STEP 11: Load initial data
-  await loadInitialData(settings);
+  await loadInitialData();
 
   // STEP 12: Initialize WebSocket
   initWebSocket();
@@ -317,10 +321,8 @@ function toggleElementVisibility(id, visible) {
 
 /**
  * Load user settings (CEO level, points).
- *
- * @param {Object} settings - Settings object
  */
-async function loadUserSettings(settings) {
+async function loadUserSettings() {
   try {
     const userResponse = await fetch(window.apiUrl('/api/user/get-settings'));
     if (userResponse.ok) {
@@ -427,7 +429,7 @@ function registerAllEventListeners(settings, debouncedFunctions) {
   });
 
   eventRegistry.registerDialogEventListeners(
-    { showSettings, closeSettings, closeContactList, closeCampaignsOverlay, closeCoopOverlay },
+    { showSettings, closeSettings, closeContactList, closeCampaignsOverlay, closeCoopOverlay, closeAllianceCoopOverlay },
     settings,
     createTestBrowserNotification(settings)
   );
@@ -449,7 +451,7 @@ function registerAllEventListeners(settings, debouncedFunctions) {
   eventRegistry.registerAutoPilotFeatureListeners(settings);
   eventRegistry.registerAutoDepartSettingsListeners(settings);
   eventRegistry.registerBunkerListeners({ buyMaxFuel, buyMaxCO2 });
-  eventRegistry.registerNotificationPermissionListener(settings);
+  eventRegistry.registerNotificationPermissionListener();
   eventRegistry.registerSectionToggle(getStorage, setStorage);
   eventRegistry.registerChatBotSettingsListeners(settings);
   eventRegistry.registerCustomCommandsListeners(settings);
@@ -465,10 +467,8 @@ function registerAllEventListeners(settings, debouncedFunctions) {
 
 /**
  * Load initial data with delays to prevent socket hang-ups.
- *
- * @param {Object} settings - Settings object
  */
-async function loadInitialData(settings) {
+async function loadInitialData() {
   const chatFeed = document.getElementById('chatFeed');
 
   await loadAllianceMembers();
@@ -536,6 +536,9 @@ function createAllianceChatHandler() {
       const chatFeed = document.getElementById('chatFeed');
       if (chatFeed && window.loadMessages) {
         window.loadMessages(chatFeed);
+      }
+      if (chatFeed) {
+        chatFeed.scrollTop = chatFeed.scrollHeight;
       }
     }
   };
@@ -611,8 +614,18 @@ function exposeGlobalFunctions(settings, debouncedFunctions) {
   window.openHijackingInbox = openHijackingInbox;
   window.showContactList = showContactList;
   window.showCampaignsOverlay = showCampaignsOverlay;
-  window.showCoopOverlay = showCoopOverlay;
+  window.showCoopOverlay = showAllianceCoopOverlay;
   window.openSellVesselsOverlay = openSellVesselsOverlay;
+
+  // Alliance tabs
+  window.showAllianceCoopOverlay = showAllianceCoopOverlay;
+  window.closeAllianceCoopOverlay = closeAllianceCoopOverlay;
+  window.updateCoopTabBadge = updateCoopTabBadge;
+  window.showAllAllianceUI = showAllAllianceUI;
+  window.hideAllAllianceUI = hideAllAllianceUI;
+  window.switchAllianceTab = switchTab;
+  window.switchTab = switchTab;
+  window.clearAllianceTabCache = clearAllianceTabCache;
 
   // Vessel management
   window.updateVesselCount = updateVesselCount;

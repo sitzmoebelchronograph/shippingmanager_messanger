@@ -22,20 +22,17 @@ export function updateCoopDisplay(cap, available) {
   const coopDisplay = document.getElementById('coopDisplay');
   const coopContainer = coopDisplay?.parentElement;
   const coopModalBtn = document.querySelector('button[onclick="openCoopModal()"]');
-  const coopActionBtn = document.getElementById('coopBtn');
 
-  // Hide if cap === 0 (user not in alliance)
+  // Hide header elements if cap === 0 (user not in alliance), but keep action button visible
   if (cap === 0) {
     if (coopContainer) coopContainer.classList.add('hidden');
     if (coopModalBtn) coopModalBtn.style.display = 'none';
-    if (coopActionBtn) coopActionBtn.style.display = 'none';
     return;
   }
 
   // Show if it was hidden
   if (coopContainer) coopContainer.classList.remove('hidden');
   if (coopModalBtn) coopModalBtn.style.display = '';
-  if (coopActionBtn) coopActionBtn.style.display = '';
 
   if (coopDisplay) {
     // Clear and rebuild using DOM manipulation
@@ -112,10 +109,10 @@ export function loadCache(settings) {
     }
 
     // COOP data (alliance cooperation)
-    loadCoopData(data);
+    loadCoopData(data, settings);
 
     // Bunker status
-    loadBunkerStatus(data, settings);
+    loadBunkerStatus(data);
 
     // Stock & Anchor
     loadStockAndAnchor(data);
@@ -305,46 +302,77 @@ function loadPrices(data, settings) {
 /**
  * Load COOP data from cache.
  * @param {Object} data - Cached data object
+ * @param {Object} settings - Settings object with allianceId
  */
-function loadCoopData(data) {
+function loadCoopData(data, settings) {
   const coopContainer = document.getElementById('coopContainer');
   const coopBtn = document.getElementById('coopBtn');
 
   if (data.coop) {
     const { available, cap } = data.coop;
 
-    if (coopContainer) coopContainer.classList.remove('hidden');
-    if (coopBtn) coopBtn.style.display = '';
-    updateButtonVisibility('coop', true);
+    // User has LEFT alliance if settings explicitly says allianceId is null
+    // If settings is undefined or allianceId is not set, assume user still has alliance (data is from cache)
+    const userLeftAlliance = settings && settings.allianceId === null;
 
-    const allianceChatBtn = document.getElementById('allianceChatBtn');
-    if (allianceChatBtn) allianceChatBtn.style.display = '';
-    updateButtonVisibility('allianceChat', true);
+    if (!userLeftAlliance) {
+      // Show alliance UI
+      if (coopContainer) coopContainer.classList.remove('hidden');
+      if (coopBtn) coopBtn.style.display = '';
+      updateButtonVisibility('coop', true);
 
-    const color = available === 0 ? 'GREEN' : 'RED';
-    updateBadge('coopBadge', available, available > 0, color);
-    console.log(`[COOP Badge] Updated via badge-manager: available=${available}, color=${color}`);
+      const allianceChatBtn = document.querySelector('[data-action="allianceChat"]');
+      if (allianceChatBtn) allianceChatBtn.style.display = '';
+      updateButtonVisibility('allianceChat', true);
 
-    if (cap > 0) {
-      updateCoopDisplay(cap, available);
+      const color = available === 0 ? 'GREEN' : 'RED';
+      updateBadge('coopBadge', available, available > 0, color);
+      console.log(`[COOP Badge] Updated via badge-manager: available=${available}, color=${color}`);
+
+      // Also update the coop tab badge if the function is available
+      if (window.updateCoopTabBadge) {
+        window.updateCoopTabBadge(available);
+      }
+
+      if (cap > 0) {
+        updateCoopDisplay(cap, available);
+      }
+    } else {
+      // User left alliance but cache still has coop data - hide everything
+      const allianceChatBtn = document.querySelector('[data-action="allianceChat"]');
+      if (allianceChatBtn) allianceChatBtn.style.display = 'none';
+      updateButtonVisibility('allianceChat', false);
+
+      if (coopContainer) coopContainer.classList.add('hidden');
+      updateBadge('coopBadge', 0, false, 'GREEN');
+      if (window.updateCoopDisplay) {
+        window.updateCoopDisplay(0, 0);
+      }
     }
   } else {
+    // User has no alliance or no coop data - hide everything
     if (coopContainer) coopContainer.classList.add('hidden');
-    if (coopBtn) coopBtn.style.display = 'none';
-    updateButtonVisibility('coop', false);
 
-    const allianceChatBtn = document.getElementById('allianceChatBtn');
+    const allianceChatBtn = document.querySelector('[data-action="allianceChat"]');
     if (allianceChatBtn) allianceChatBtn.style.display = 'none';
     updateButtonVisibility('allianceChat', false);
+
+    // Clear all coop badges
+    updateBadge('coopBadge', 0, false, 'GREEN');
+    if (window.updateCoopTabBadge) {
+      window.updateCoopTabBadge(0);
+    }
+    if (window.updateCoopDisplay) {
+      window.updateCoopDisplay(0, 0);
+    }
   }
 }
 
 /**
  * Load bunker status from cache.
  * @param {Object} data - Cached data object
- * @param {Object} settings - Current settings (unused but passed for consistency)
  */
-function loadBunkerStatus(data, settings) {
+function loadBunkerStatus(data) {
   if (!data.bunker) return;
 
   const { fuel, co2, cash, maxFuel, maxCO2, points } = data.bunker;

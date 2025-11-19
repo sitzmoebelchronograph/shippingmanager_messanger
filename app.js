@@ -104,6 +104,7 @@ logger.info(`[Logging] Server logs will be written to: ${LOG_FILE}`);
 
 // Route modules
 const allianceRoutes = require('./server/routes/alliance');
+const alliancesRoutes = require('./server/routes/alliances');
 const messengerRoutes = require('./server/routes/messenger');
 const gameRoutes = require('./server/routes/game');
 const settingsRoutes = require('./server/routes/settings');
@@ -115,6 +116,8 @@ const logbookRoutes = require('./server/routes/logbook');
 const harborMapRoutes = require('./server/routes/harbor-map');
 const poiRoutes = require('./server/routes/poi');
 const vesselImageRoutes = require('./server/routes/vessel-image');
+const allianceLogoRoutes = require('./server/routes/alliance-logo');
+const staffRoutes = require('./server/routes/staff');
 
 // Initialize Express app
 const app = express();
@@ -148,6 +151,7 @@ app.get('/ca-cert.pem', (req, res) => {
 
 // Setup routes
 app.use('/api', allianceRoutes);
+app.use('/api/alliances', alliancesRoutes);
 app.use('/api', messengerRoutes);
 app.use('/api', gameRoutes);
 app.use('/api', settingsRoutes);
@@ -159,6 +163,8 @@ app.use('/api/logbook', logbookRoutes);
 app.use('/api/harbor-map', harborMapRoutes);
 app.use('/api/poi', poiRoutes);
 app.use('/api/vessel-image', vesselImageRoutes);
+app.use('/api/alliance-logo', allianceLogoRoutes);
+app.use('/api/staff', staffRoutes);
 
 // Autopilot pause/resume endpoint
 app.post('/api/autopilot/toggle', async (req, res) => {
@@ -254,9 +260,19 @@ const chatBot = require('./server/chatbot');
         process.exit(1);
       }
 
-      // Set the session cookie in config
-      config.setSessionCookie(selectedSession.cookie);
+      // Set the session cookies in config (shipping_manager_session, app_platform, app_version)
+      config.setSessionCookie(
+        selectedSession.cookie,
+        selectedSession.appPlatform,
+        selectedSession.appVersion
+      );
       logger.info('[Session] Session cookie loaded and decrypted');
+      if (selectedSession.appPlatform) {
+        logger.debug('[Session] app_platform cookie loaded');
+      }
+      if (selectedSession.appVersion) {
+        logger.debug('[Session] app_version cookie loaded');
+      }
 
     } catch (error) {
       logger.error('[FATAL] Failed to load session:', error.message);
@@ -265,6 +281,10 @@ const chatBot = require('./server/chatbot');
 
     // Initialize alliance and user data
     await initializeAlliance();
+
+    // Start alliance indexer (non-blocking)
+    const allianceIndexer = require('./server/services/alliance-indexer');
+    allianceIndexer.start();
 
     // Migrate any plaintext sessions to encrypted storage
     try {

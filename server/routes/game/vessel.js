@@ -973,4 +973,46 @@ router.post('/rename-vessel', express.json(), async (req, res) => {
   }
 });
 
+/**
+ * POST /api/vessel/park-vessel
+ * Parks a vessel (moors it)
+ */
+router.post('/park-vessel', express.json(), async (req, res) => {
+  const { vessel_id } = req.body;
+
+  if (!vessel_id) {
+    return res.status(400).json({ error: 'Missing vessel_id' });
+  }
+
+  try {
+    const data = await apiCall('/vessel/park-vessel', 'POST', { vessel_id });
+    logger.info(`[Park Vessel] Vessel ${vessel_id} parked successfully`);
+    res.json(data);
+  } catch (error) {
+    logger.error(`[Park Vessel] Failed for vessel ${vessel_id}:`, error.message);
+    res.status(500).json({ error: 'Failed to park vessel', message: error.message });
+  }
+});
+
+/**
+ * POST /api/vessel/resume-parked-vessel
+ * Resumes a parked vessel (unmoores it)
+ */
+router.post('/resume-parked-vessel', express.json(), async (req, res) => {
+  const { vessel_id } = req.body;
+
+  if (!vessel_id) {
+    return res.status(400).json({ error: 'Missing vessel_id' });
+  }
+
+  try {
+    const data = await apiCall('/vessel/resume-parked-vessel', 'POST', { vessel_id });
+    logger.info(`[Resume Parked Vessel] Vessel ${vessel_id} resumed successfully`);
+    res.json(data);
+  } catch (error) {
+    logger.error(`[Resume Parked Vessel] Failed for vessel ${vessel_id}:`, error.message);
+    res.status(500).json({ error: 'Failed to resume parked vessel', message: error.message });
+  }
+});
+
 module.exports = router;

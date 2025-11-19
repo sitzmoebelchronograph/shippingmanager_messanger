@@ -70,7 +70,7 @@ const router = express.Router();
 const fs = require('fs').promises;
 const { broadcastToUser } = require('../websocket');
 const { getSettingsFilePath, validateSettings } = require('../settings-schema');
-const { getUserId } = require('../utils/api');
+const { getUserId, apiCall } = require('../utils/api');
 const logger = require('../utils/logger');
 const { isDebugMode } = logger;
 
@@ -310,35 +310,60 @@ router.post('/settings', async (req, res) => {
       try {
         logger.debug(`[Settings] ChatBot: ${validSettings.chatbotEnabled ? 'ENABLED' : 'DISABLED'}`);
 
+        // Check if user has management role
+        let isManagement = false;
+        try {
+          const response = await apiCall('/alliance/get-alliance-members', 'POST', {});
+          const members = response?.data?.members || response?.members || [];
+          const member = members.find(m => m.user_id === userId);
+          const role = member?.role || 'member';
+          const allowedRoles = ['ceo', 'coo', 'management', 'interimceo'];
+          isManagement = allowedRoles.includes(role);
+        } catch (error) {
+          logger.debug('[Settings] Error checking management role:', error);
+          isManagement = false; // Fail-secure: deny access on error
+        }
+
+        // Welcome command: MUST be disabled if user is not management, regardless of saved setting
+        const welcomeEnabled = isManagement && (validSettings.chatbotWelcomeCommandEnabled === true);
+
         // Transform settings to ChatBot format
         const chatBotSettings = {
-          enabled: validSettings.chatbotEnabled,
-          commandPrefix: validSettings.chatbotPrefix,
+          enabled: validSettings.chatbotEnabled || false,
+          commandPrefix: validSettings.chatbotPrefix || '!',
           allianceCommands: {
-            enabled: validSettings.chatbotAllianceCommandsEnabled,
+            enabled: validSettings.chatbotAllianceCommandsEnabled || false,
             cooldownSeconds: validSettings.chatbotCooldownSeconds || 30
           },
           commands: {
             forecast: {
-              enabled: validSettings.chatbotForecastCommandEnabled,
+              enabled: validSettings.chatbotForecastCommandEnabled || false,
               responseType: 'dm',
-              adminOnly: false
+              adminOnly: false,
+              aliases: validSettings.chatbotForecastAliases || ['prices', 'price']
             },
             help: {
-              enabled: validSettings.chatbotHelpCommandEnabled,
+              enabled: validSettings.chatbotHelpCommandEnabled || false,
               responseType: 'dm',
-              adminOnly: false
+              adminOnly: false,
+              aliases: validSettings.chatbotHelpAliases || ['commands', 'help']
+            },
+            welcome: {
+              enabled: welcomeEnabled, // Only enabled if user is management AND setting is true
+              responseType: 'dm',
+              adminOnly: true, // Requires management role (CEO, COO, Management, Interim CEO)
+              aliases: []
             }
           },
           scheduledMessages: {
             dailyForecast: {
-              enabled: validSettings.chatbotDailyForecastEnabled,
-              timeUTC: validSettings.chatbotDailyForecastTime,
+              enabled: validSettings.chatbotDailyForecastEnabled || false,
+              timeUTC: validSettings.chatbotDailyForecastTime || '18:00',
               dayOffset: 1
             }
           },
           dmCommands: {
-            enabled: validSettings.chatbotDMCommandsEnabled
+            enabled: validSettings.chatbotDMCommandsEnabled || false
           },
           customCommands: validSettings.chatbotCustomCommands || []
         };

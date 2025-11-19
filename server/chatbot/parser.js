@@ -7,9 +7,28 @@
  * @module server/chatbot/parser
  */
 
-const { getUserId } = require('../utils/api');
+const { getUserId, apiCall } = require('../utils/api');
 const { getSettingsFilePath } = require('../settings-schema');
 const logger = require('../utils/logger');
+
+/**
+ * Check if user has management role in alliance (CEO, COO, Management, Interim CEO)
+ * @param {number} userId - User ID to check
+ * @returns {Promise<boolean>} True if user has management role
+ */
+async function hasManagementRole(userId) {
+    try {
+        const response = await apiCall('/alliance/get-alliance-members', 'POST', {});
+        const members = response?.data?.members || response?.members || [];
+        const member = members.find(m => m.user_id === userId);
+        const role = member?.role || 'member';
+        const allowedRoles = ['ceo', 'coo', 'management', 'interimceo'];
+        return allowedRoles.includes(role);
+    } catch (error) {
+        logger.error('[ChatBot] Error checking management role:', error);
+        return false; // Fail-secure: deny access on error
+    }
+}
 
 /**
  * Resolve command name from input (including aliases)
@@ -95,6 +114,9 @@ function validateCommandArguments(command, args) {
             // Help command accepts no arguments
             return args.length === 0;
 
+        case 'welcome':
+            return validateWelcomeArguments(args);
+
         default:
             // Custom commands or unknown commands - accept any arguments
             return true;
@@ -147,6 +169,25 @@ function validateForecastArguments(args) {
 
     // More than 2 arguments is invalid
     return false;
+}
+
+/**
+ * Validate welcome command arguments
+ * Valid format: 1 arg (user ID as numeric string, optionally wrapped in brackets)
+ * Game chat automatically wraps numbers in brackets
+ * @param {Array<string>} args - Command arguments
+ * @returns {boolean} True if valid
+ */
+function validateWelcomeArguments(args) {
+    // Must have exactly 1 argument (user ID)
+    if (args.length !== 1) {
+        return false;
+    }
+
+    // User ID must be numeric, optionally wrapped in brackets [123456]
+    const userId = args[0];
+    // Match either plain number or number in brackets
+    return /^\d+$/.test(userId) || /^\[\d+\]$/.test(userId);
 }
 
 /**
@@ -251,11 +292,13 @@ async function processAllianceMessage(message, userId, userName, chatbotInstance
         return;
     }
 
-    // Check admin permission
-    const currentUserId = getUserId();
-    if (cmdConfig.adminOnly && userId !== currentUserId) {
-        logger.debug(`[ChatBot] User ${userId} tried admin command ${command}`);
-        return;
+    // Check admin permission (for commands like welcome that require management role)
+    if (cmdConfig.adminOnly) {
+        const isManagement = await hasManagementRole(userId);
+        if (!isManagement) {
+            logger.debug(`[ChatBot] User ${userId} tried admin command ${command} without management role`);
+            return;
+        }
     }
 
     // Check cooldown
@@ -381,5 +424,6 @@ module.exports = {
     updateCooldown,
     validateCommandArguments,
     validateForecastArguments,
+    validateWelcomeArguments,
     isCommandAllowedInChannel
 };

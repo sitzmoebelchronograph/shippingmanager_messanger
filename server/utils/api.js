@@ -56,6 +56,12 @@ const logger = require('./logger');
 let ALLIANCE_ID = null;
 
 /**
+ * User's alliance name (null if not in alliance)
+ * @type {string|null}
+ */
+let ALLIANCE_NAME = null;
+
+/**
  * Current user's unique identifier
  * @type {number|null}
  */
@@ -232,7 +238,16 @@ async function apiCall(endpoint, method = 'POST', body = {}, timeout = 90000, re
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
         'Origin': 'https://shippingmanager.cc',
         'Referer': 'https://shippingmanager.cc/loading',
-        'Cookie': `shipping_manager_session=${config.SESSION_COOKIE}`
+        'Cookie': (() => {
+          let cookies = `shipping_manager_session=${config.SESSION_COOKIE}`;
+          if (config.getAppPlatformCookie()) {
+            cookies += `; app_platform=${config.getAppPlatformCookie()}`;
+          }
+          if (config.getAppVersionCookie()) {
+            cookies += `; app_version=${config.getAppVersionCookie()}`;
+          }
+          return cookies;
+        })()
       },
       httpsAgent: httpsAgent,      // Use Keep-Alive agent
       timeout: timeout              // Request timeout (configurable, default 90s)
@@ -516,14 +531,17 @@ async function initializeAlliance() {
       const allianceData = await apiCall('/alliance/get-user-alliance', 'POST', {});
       if (allianceData.data && allianceData.data.alliance && allianceData.data.alliance.id) {
         ALLIANCE_ID = allianceData.data.alliance.id;
-        logger.debug(`[Session] Alliance loaded: ${allianceData.data.alliance.name} (ID: ${ALLIANCE_ID})`);
+        ALLIANCE_NAME = allianceData.data.alliance.name;
+        logger.debug(`[Session] Alliance loaded: ${ALLIANCE_NAME} (ID: ${ALLIANCE_ID})`);
         logger.info(`[Session] Alliance loaded`);
       } else {
         ALLIANCE_ID = null;
+        ALLIANCE_NAME = null;
         logger.debug(`[Session] User is not in an alliance`);
       }
     } catch {
       ALLIANCE_ID = null;
+      ALLIANCE_NAME = null;
       logger.debug(`[Session] User is not in an alliance`);
     }
   } catch (error) {
@@ -659,6 +677,99 @@ function getUserCompanyName() {
   return USER_COMPANY_NAME;
 }
 
+/**
+ * Returns the current user's alliance name
+ * @returns {string|null} Alliance name or null if not in alliance
+ */
+function getAllianceName() {
+  return ALLIANCE_NAME;
+}
+
+/**
+ * Updates the cached alliance ID and name
+ * @param {number|null} newAllianceId - New alliance ID or null if user left alliance
+ * @param {string|null} newAllianceName - New alliance name (optional)
+ */
+function setAllianceId(newAllianceId, newAllianceName = null) {
+  ALLIANCE_ID = newAllianceId;
+  if (newAllianceName !== null) {
+    ALLIANCE_NAME = newAllianceName;
+  }
+}
+
+/**
+ * Checks current alliance membership and updates cached ID if changed.
+ * Broadcasts alliance_changed event to all clients when change detected.
+ *
+ * Call this periodically (e.g., in main event loop) to detect alliance switches.
+ *
+ * @returns {Promise<boolean>} True if alliance ID changed
+ *
+ * @example
+ * // In main event loop (every 60s)
+ * await checkAndUpdateAllianceId();
+ */
+async function checkAndUpdateAllianceId() {
+  try {
+    const allianceData = await apiCall('/alliance/get-user-alliance', 'POST', {});
+
+    let newAllianceId = null;
+    let newAllianceName = null;
+
+    if (allianceData.data && allianceData.data.alliance && allianceData.data.alliance.id) {
+      newAllianceId = allianceData.data.alliance.id;
+      newAllianceName = allianceData.data.alliance.name || null;
+    }
+
+    if (newAllianceId === ALLIANCE_ID) {
+      return false;
+    }
+
+    const oldId = ALLIANCE_ID;
+    const oldName = ALLIANCE_NAME;
+
+    setAllianceId(newAllianceId, newAllianceName);
+
+    logger.info(`[Alliance] Alliance changed: ${oldName || 'None'} (${oldId}) -> ${newAllianceName || 'None'} (${newAllianceId})`);
+
+    try {
+      const { broadcast } = require('../websocket/broadcaster');
+      broadcast('alliance_changed', {
+        old_alliance_id: oldId,
+        new_alliance_id: newAllianceId,
+        old_alliance_name: oldName,
+        new_alliance_name: newAllianceName
+      });
+
+      // Trigger immediate data refresh when alliance changes
+      logger.info('[Alliance] Triggering immediate data refresh after alliance change');
+      const { updateAllData } = require('../autopilot');
+      const { performChatRefresh } = require('../websocket/chat-refresh');
+
+      setImmediate(() => {
+        // Refresh all standard data (bunker, prices, coop, vessels, etc.)
+        updateAllData().catch(err => {
+          logger.error('[Alliance] Failed to refresh data after alliance change:', err.message);
+        });
+
+        // Also refresh chat messages if user joined an alliance
+        if (newAllianceId !== null) {
+          performChatRefresh().catch(err => {
+            logger.error('[Alliance] Failed to refresh chat after alliance change:', err.message);
+          });
+        }
+      });
+    } catch (error) {
+      logger.error('[Alliance] Failed to broadcast alliance change:', error.message);
+    }
+
+    return true;
+  } catch (error) {
+    logger.debug('[Alliance] Failed to check alliance ID:', error.message);
+    return false;
+  }
+}
+
 module.exports = {
   apiCall,
   apiCallWithRetry,
@@ -666,6 +777,9 @@ module.exports = {
   initializeAlliance,
   getChatFeed,
   getAllianceId,
+  getAllianceName,
+  setAllianceId,
+  checkAndUpdateAllianceId,
   getUserId,
   getUserCompanyName
 };

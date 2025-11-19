@@ -6,7 +6,7 @@
  * @module core/settings-sync
  */
 
-import { saveSettings, updatePageTitle, escapeHtml } from '../utils.js';
+import { updatePageTitle } from '../utils.js';
 
 /**
  * Format number with thousand separators.
@@ -384,6 +384,9 @@ function updateChatBotSettings(newSettings) {
 
   const cmdHelpDMCheckbox = document.getElementById('cmdHelpDM');
   if (cmdHelpDMCheckbox) cmdHelpDMCheckbox.checked = newSettings.chatbotHelpDMEnabled === true;
+
+  const cmdWelcomeCheckbox = document.getElementById('cmdWelcome');
+  if (cmdWelcomeCheckbox) cmdWelcomeCheckbox.checked = newSettings.chatbotWelcomeCommandEnabled !== false;
 
   const enableDMCommandsCheckbox = document.getElementById('enableDMCommands');
   if (enableDMCommandsCheckbox) {

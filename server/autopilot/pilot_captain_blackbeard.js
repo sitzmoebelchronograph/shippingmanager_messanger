@@ -150,12 +150,13 @@ async function acceptRansomWithRetry(caseId, expectedAmount, cashBeforePaid, max
 }
 
 /**
- * Process a single hijacking case: negotiate until below threshold, then accept.
+ * Process a single hijacking case: make max counter offers, then accept.
  */
-async function processHijackingCase(userId, caseId, vesselName, threshold, offerPercentage, verifyDelay, maxRetries, broadcastToUser) {
+async function processHijackingCase(userId, caseId, vesselName, offerPercentage, maxCounterOffers, verifyDelay, maxRetries, broadcastToUser) {
   logger.debug(`[Auto-Negotiate Hijacking] Processing case ${caseId}...`);
 
   let negotiationRound = 0;
+  let counterOffersMade = 0;
   let initialDemand = null;
   const MAX_ROUNDS = 50;
 
@@ -279,9 +280,11 @@ async function processHijackingCase(userId, caseId, vesselName, threshold, offer
       continue;
     }
 
-    // Check if we should accept
-    if (requestedAmount < threshold) {
-      logger.debug(`[Auto-Negotiate Hijacking] Case ${caseId}: Price $${requestedAmount} below threshold $${threshold}, checking cash...`);
+    // Check if we should accept (reached max counter offers)
+    const shouldAccept = counterOffersMade >= maxCounterOffers;
+
+    if (shouldAccept) {
+      logger.debug(`[Auto-Negotiate Hijacking] Case ${caseId}: Reached max counter offers (${counterOffersMade}/${maxCounterOffers}), accepting price $${requestedAmount}, checking cash...`);
 
       // Get cash BEFORE payment from current case data
       const cashBeforePaid = caseData.user?.cash;
@@ -311,7 +314,7 @@ async function processHijackingCase(userId, caseId, vesselName, threshold, offer
           data: {
             case_id: caseId,
             final_price: requestedAmount,
-            threshold: threshold
+            counter_offers_made: counterOffersMade
           }
         });
       }
@@ -399,9 +402,10 @@ async function processHijackingCase(userId, caseId, vesselName, threshold, offer
       return;
     }
 
-    // Offer 1%
+    // Make counter offer (25% of requested amount)
+    counterOffersMade++;
     const offerAmount = Math.floor(requestedAmount * offerPercentage);
-    logger.debug(`[Auto-Negotiate Hijacking] Case ${caseId}: Offering $${offerAmount} (${offerPercentage * 100}%)`);
+    logger.debug(`[Auto-Negotiate Hijacking] Case ${caseId}: Counter offer ${counterOffersMade}/${maxCounterOffers}: Offering $${offerAmount} (${offerPercentage * 100}%)`);
 
     if (broadcastToUser) {
       broadcastToUser(userId, 'hijacking_update', {
@@ -409,6 +413,8 @@ async function processHijackingCase(userId, caseId, vesselName, threshold, offer
         data: {
           case_id: caseId,
           round: negotiationRound,
+          counter_offer_number: counterOffersMade,
+          max_counter_offers: maxCounterOffers,
           your_offer: offerAmount,
           pirate_demand: requestedAmount
         }
@@ -522,8 +528,8 @@ async function autoNegotiateHijacking(autopilotPaused, broadcastToUser, tryUpdat
     return;
   }
 
-  const THRESHOLD = 20000;
-  const OFFER_PERCENTAGE = 0.01;
+  const OFFER_PERCENTAGE = 0.25;
+  const MAX_COUNTER_OFFERS = 2;
   const VERIFY_DELAY = 120000;
   const MAX_RETRIES = 3;
 
@@ -558,7 +564,7 @@ async function autoNegotiateHijacking(autopilotPaused, broadcastToUser, tryUpdat
       }
 
       try {
-        await processHijackingCase(userId, caseId, vesselName, THRESHOLD, OFFER_PERCENTAGE, VERIFY_DELAY, MAX_RETRIES, broadcastToUser);
+        await processHijackingCase(userId, caseId, vesselName, OFFER_PERCENTAGE, MAX_COUNTER_OFFERS, VERIFY_DELAY, MAX_RETRIES, broadcastToUser);
         processed++;
       } catch (error) {
         logger.error(`[Auto-Negotiate Hijacking] Error processing case ${caseId}:`, error.message);

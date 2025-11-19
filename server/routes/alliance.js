@@ -40,9 +40,10 @@
 
 const express = require('express');
 const validator = require('validator');
-const { apiCall, getCompanyName, getChatFeed, getAllianceId, getUserId } = require('../utils/api');
+const { apiCall, getCompanyName, getChatFeed, getAllianceId, getUserId, setAllianceId } = require('../utils/api');
 const { messageLimiter } = require('../middleware');
 const { getLastReadTimestamp, updateLastReadTimestamp } = require('../utils/read-tracker');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -331,17 +332,106 @@ router.post('/company-name', express.json(), async (req, res) => {
  */
 router.get('/alliance-members', async (req, res) => {
   if (!getAllianceId()) {
-    return res.json([]);
+    return res.json({ members: [], current_user_id: getUserId() });
   }
 
   try {
-    const data = await apiCall('/alliance/get-alliance-members', 'POST', {});
-    const members = data.data.members.map(member => ({
-      user_id: member.user_id,
-      company_name: member.company_name
-    }));
-    res.json(members);
+    // Fetch all 4 stat variations in parallel
+    const [baseData, lastSeasonData, last24hData, lifetimeData] = await Promise.all([
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        lifetime_stats: false,
+        last_24h_stats: false,
+        last_season_stats: false,
+        include_last_season_top_contributors: true
+      }),
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        lifetime_stats: false,
+        last_24h_stats: false,
+        last_season_stats: true,
+        include_last_season_top_contributors: true
+      }),
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        lifetime_stats: false,
+        last_24h_stats: true,
+        last_season_stats: false,
+        include_last_season_top_contributors: true
+      }),
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        lifetime_stats: true,
+        last_24h_stats: false,
+        last_season_stats: false,
+        include_last_season_top_contributors: true
+      })
+    ]);
+
+    // Merge data: keep separate stats for each filter (24h, season, lifetime)
+    const memberMap = new Map();
+
+    // Process base data (initialize members)
+    baseData.data.members.forEach(member => {
+      memberMap.set(member.user_id, {
+        user_id: member.user_id,
+        company_name: member.company_name,
+        role: member.role,
+        is_rookie: member.is_rookie,
+        time_joined: member.time_joined,
+        share_value: member.share_value,
+        difficulty: member.difficulty,
+        tanker_ops: member.tanker_ops,
+        time_last_login: member.time_last_login,
+        stats: {
+          last_24h: { contribution: 0, departures: 0 },
+          last_season: { contribution: 0, departures: 0 },
+          lifetime: { contribution: 0, departures: 0 }
+        }
+      });
+    });
+
+    // Add last_24h stats
+    last24hData.data.members.forEach(member => {
+      if (memberMap.has(member.user_id)) {
+        memberMap.get(member.user_id).stats.last_24h = {
+          contribution: member.contribution || 0,
+          departures: member.departures || 0
+        };
+      }
+    });
+
+    // Add last_season stats
+    lastSeasonData.data.members.forEach(member => {
+      if (memberMap.has(member.user_id)) {
+        memberMap.get(member.user_id).stats.last_season = {
+          contribution: member.contribution || 0,
+          departures: member.departures || 0
+        };
+      }
+    });
+
+    // Add lifetime stats
+    lifetimeData.data.members.forEach(member => {
+      if (memberMap.has(member.user_id)) {
+        memberMap.get(member.user_id).stats.lifetime = {
+          contribution: member.contribution || 0,
+          departures: member.departures || 0
+        };
+      }
+    });
+
+    const members = Array.from(memberMap.values());
+
+    const responseData = {
+      members: members,
+      current_user_id: getUserId()
+    };
+
+    // Include last_season_top_contributors if available from the base response
+    if (baseData.data.last_season_top_contributors) {
+      responseData.last_season_top_contributors = baseData.data.last_season_top_contributors;
+    }
+
+    res.json(responseData);
   } catch (error) {
+    logger.error('[Alliance Members] Error fetching members with all stats:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -409,6 +499,659 @@ router.post('/chat/mark-read', express.json(), async (req, res) => {
       res.status(500).json({ error: 'Failed to update read timestamp' });
     }
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/alliance-info - Retrieves alliance details including stats and benefits.
+ *
+ * This endpoint fetches comprehensive alliance information from the game API,
+ * including alliance stats, benefit levels, league info, and coop status.
+ *
+ * Response includes:
+ * - Alliance name, logo, description, language
+ * - Member count, total share value
+ * - Stats: departures, contribution score, coops (24h/season/total)
+ * - Benefit levels and boosts (rep_boost, demand_boost, coop_boost)
+ * - League level, group position, promotion status
+ * - Coop status (used vs needed)
+ *
+ * @name GET /api/alliance-info
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with alliance data (excluding user object)
+ */
+router.get('/alliance-info', async (req, res) => {
+  if (!getAllianceId()) {
+    return res.json({ no_alliance: true });
+  }
+
+  try {
+    const data = await apiCall('/alliance/get-alliance', 'POST', {
+      alliance_id: getAllianceId()
+    });
+    res.json(data.data.alliance);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/alliance-info/:id - Retrieves specific alliance details by ID.
+ *
+ * This endpoint fetches comprehensive alliance information for ANY alliance,
+ * not just the user's alliance. Used for viewing other alliances from highscores.
+ *
+ * @name GET /api/alliance-info/:id
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object with alliance ID param
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with alliance data
+ */
+router.get('/alliance-info/:id', async (req, res) => {
+  try {
+    const allianceId = parseInt(req.params.id, 10);
+    if (isNaN(allianceId)) {
+      return res.status(400).json({ error: 'Invalid alliance ID' });
+    }
+
+    const data = await apiCall('/alliance/get-alliance', 'POST', {
+      alliance_id: allianceId
+    });
+
+    if (data.error) {
+      return res.status(400).json({ error: data.error });
+    }
+
+    res.json(data.data.alliance);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/alliance-members/:id - Retrieves members of a specific alliance by ID.
+ *
+ * This endpoint fetches member information for ANY alliance,
+ * not just the user's alliance. Used for viewing other alliances from highscores.
+ *
+ * @name GET /api/alliance-members/:id
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object with alliance ID param
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with members array
+ */
+router.get('/alliance-members/:id', async (req, res) => {
+  try {
+    const allianceId = parseInt(req.params.id, 10);
+    if (isNaN(allianceId)) {
+      return res.status(400).json({ error: 'Invalid alliance ID' });
+    }
+
+    // Fetch all 4 stat variations in parallel
+    const [baseData, lastSeasonData, last24hData, lifetimeData] = await Promise.all([
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        alliance_id: allianceId,
+        lifetime_stats: false,
+        last_24h_stats: false,
+        last_season_stats: false,
+        include_last_season_top_contributors: true
+      }),
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        alliance_id: allianceId,
+        lifetime_stats: false,
+        last_24h_stats: false,
+        last_season_stats: true,
+        include_last_season_top_contributors: true
+      }),
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        alliance_id: allianceId,
+        lifetime_stats: false,
+        last_24h_stats: true,
+        last_season_stats: false,
+        include_last_season_top_contributors: true
+      }),
+      apiCall('/alliance/get-alliance-members', 'POST', {
+        alliance_id: allianceId,
+        lifetime_stats: true,
+        last_24h_stats: false,
+        last_season_stats: false,
+        include_last_season_top_contributors: true
+      })
+    ]);
+
+    if (baseData.error) {
+      return res.status(400).json({ error: baseData.error });
+    }
+
+    // Merge data: keep separate stats for each filter (24h, season, lifetime)
+    const memberMap = new Map();
+
+    // Process base data (initialize members)
+    baseData.data.members.forEach(member => {
+      memberMap.set(member.user_id, {
+        user_id: member.user_id,
+        company_name: member.company_name,
+        role: member.role,
+        is_rookie: member.is_rookie,
+        time_joined: member.time_joined,
+        share_value: member.share_value,
+        difficulty: member.difficulty,
+        tanker_ops: member.tanker_ops,
+        time_last_login: member.time_last_login,
+        stats: {
+          last_24h: { contribution: 0, departures: 0 },
+          last_season: { contribution: 0, departures: 0 },
+          lifetime: { contribution: 0, departures: 0 }
+        }
+      });
+    });
+
+    // Add last_24h stats
+    last24hData.data.members.forEach(member => {
+      if (memberMap.has(member.user_id)) {
+        memberMap.get(member.user_id).stats.last_24h = {
+          contribution: member.contribution || 0,
+          departures: member.departures || 0
+        };
+      }
+    });
+
+    // Add last_season stats
+    lastSeasonData.data.members.forEach(member => {
+      if (memberMap.has(member.user_id)) {
+        memberMap.get(member.user_id).stats.last_season = {
+          contribution: member.contribution || 0,
+          departures: member.departures || 0
+        };
+      }
+    });
+
+    // Add lifetime stats
+    lifetimeData.data.members.forEach(member => {
+      if (memberMap.has(member.user_id)) {
+        memberMap.get(member.user_id).stats.lifetime = {
+          contribution: member.contribution || 0,
+          departures: member.departures || 0
+        };
+      }
+    });
+
+    const members = Array.from(memberMap.values());
+
+    // Include last_season_top_contributors if available from the base response
+    const responseData = {
+      members: members
+    };
+
+    if (baseData.data.last_season_top_contributors) {
+      responseData.last_season_top_contributors = baseData.data.last_season_top_contributors;
+    }
+
+    res.json(responseData);
+  } catch (error) {
+    logger.error('[Alliance Members By ID] Error fetching members with all stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/alliance-high-scores - Retrieves alliance leaderboard rankings.
+ *
+ * This endpoint fetches the top alliances ranked by contribution score,
+ * showing their benefit levels, member counts, and league positions.
+ *
+ * Query Parameters:
+ * - page: Page number (default: 0)
+ * - tab: "current" or "previous" season (default: "current")
+ * - language: "global" or specific language code (default: "global")
+ * - league_level: "all" or specific level number (default: "all")
+ * - score: Sorting metric, e.g., "contribution" (default: "contribution")
+ *
+ * @name GET /api/alliance-high-scores
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object with optional query params
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with highscores data
+ */
+router.get('/alliance-high-scores', async (req, res) => {
+  try {
+    const {
+      page = 0,
+      tab = 'current',
+      language = 'global',
+      league_level = 'all',
+      score = 'contribution'
+    } = req.query;
+
+    const data = await apiCall('/alliance/get-high-scores', 'POST', {
+      page: parseInt(page, 10),
+      tab,
+      language,
+      league_level,
+      score
+    });
+    res.json(data.data.highscores);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/alliance-settings - Retrieves user's alliance cooperation settings.
+ *
+ * This endpoint fetches the user's current alliance settings including
+ * coop enabled status and any restrictions configured.
+ *
+ * Response includes:
+ * - coop_enabled: boolean
+ * - restrictions: { selected_vessel_capacity, time_restriction_arr, time_range_enabled }
+ *
+ * @name GET /api/alliance-settings
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with settings data
+ */
+router.get('/alliance-settings', async (req, res) => {
+  if (!getAllianceId()) {
+    return res.json({ no_alliance: true });
+  }
+
+  try {
+    const data = await apiCall('/alliance/get-settings', 'POST', {
+      alliance_id: getAllianceId()
+    });
+    res.json(data.data.settings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/alliance-queue-pool - Retrieves queue pool for alliance cooperation.
+ *
+ * This endpoint fetches the queue pool of available vessels/members for
+ * alliance cooperation with filtering and pagination support.
+ *
+ * Request Body:
+ * - pool_type: "direct" or other pool types (default: "direct")
+ * - filter_share_value: "any", "low", "medium", "high" (default: "any")
+ * - filter_fleet_size: "any", "small", "medium", "large" (default: "any")
+ * - filter_experience: "all", "beginner", "intermediate", "expert" (default: "all")
+ * - page: Page number (default: 1)
+ *
+ * @name POST /api/alliance-queue-pool
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object with filter params
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with pool data
+ */
+router.post('/alliance-queue-pool', async (req, res) => {
+  try {
+    logger.debug('[Alliance Queue Pool] Request received:', req.body);
+
+    if (!getAllianceId()) {
+      return res.json({ no_alliance: true, pool: {} });
+    }
+
+    const {
+      pool_type = 'direct',
+      filter_share_value = 'any',
+      filter_fleet_size = 'any',
+      filter_experience = 'all',
+      page = 1
+    } = req.body;
+
+    logger.debug('[Alliance Queue Pool] Calling API with pool_type:', pool_type);
+
+    const data = await apiCall('/alliance/get-queue-pool-for-alliance', 'POST', {
+      alliance_id: getAllianceId(),
+      pool_type,
+      filter_share_value,
+      filter_fleet_size,
+      filter_experience,
+      page: parseInt(page, 10)
+    });
+
+    logger.debug('[Alliance Queue Pool] API response:', JSON.stringify(data));
+
+    if (!data.data || !data.data.pool) {
+      logger.error('[Alliance Queue Pool] Invalid API response:', JSON.stringify(data));
+      return res.status(500).json({ error: 'Invalid API response' });
+    }
+
+    res.json(data.data.pool);
+  } catch (error) {
+    logger.error('[Alliance Queue Pool] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/alliance-accept-user - Accepts a user's application to join the alliance.
+ *
+ * This endpoint allows alliance management to accept pending applications from users
+ * who want to join the alliance. The user will be added as a member upon acceptance.
+ *
+ * Game API Endpoint: POST /alliance/accept-user-to-join-alliance
+ * Required Parameters:
+ * - user_id: The ID of the user applying to join
+ * - alliance_id: The ID of the alliance (automatically provided)
+ *
+ * @name POST /api/alliance-accept-user
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object with user_id
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with success/failure
+ */
+router.post('/alliance-accept-user', express.json(), async (req, res) => {
+  try {
+    const { user_id } = req.body;
+
+    if (!user_id) {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+
+    if (!getAllianceId()) {
+      return res.status(400).json({ error: 'You are not in an alliance' });
+    }
+
+    logger.debug(`[Alliance Accept User] Accepting user ${user_id} to alliance ${getAllianceId()}`);
+
+    const data = await apiCall('/alliance/accept-user-to-join-alliance', 'POST', {
+      user_id: parseInt(user_id, 10),
+      alliance_id: getAllianceId()
+    });
+
+    if (data.error) {
+      logger.error('[Alliance Accept User] API error:', data.error);
+      return res.status(400).json({ error: data.error });
+    }
+
+    logger.info(`[Alliance Accept User] Successfully accepted user ${user_id}`);
+    res.json({ success: true, data });
+  } catch (error) {
+    logger.error('[Alliance Accept User] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/alliance-decline-user - Declines a user's application to join the alliance.
+ *
+ * This endpoint allows alliance management to decline pending applications from users
+ * who want to join the alliance. The application will be removed from the queue.
+ *
+ * Game API Endpoint: POST /alliance/decline-user-direct-application
+ * Required Parameters:
+ * - user_id: The ID of the user whose application to decline
+ * - alliance_id: The ID of the alliance (automatically provided)
+ *
+ * @name POST /api/alliance-decline-user
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object with user_id
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with success/failure
+ */
+router.post('/alliance-decline-user', express.json(), async (req, res) => {
+  try {
+    const { user_id } = req.body;
+
+    if (!user_id) {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+
+    if (!getAllianceId()) {
+      return res.status(400).json({ error: 'You are not in an alliance' });
+    }
+
+    logger.debug(`[Alliance Decline User] Declining user ${user_id} from alliance ${getAllianceId()}`);
+
+    const data = await apiCall('/alliance/decline-user-direct-application', 'POST', {
+      user_id: parseInt(user_id, 10),
+      alliance_id: getAllianceId()
+    });
+
+    if (data.error) {
+      logger.error('[Alliance Decline User] API error:', data.error);
+      return res.status(400).json({ error: data.error });
+    }
+
+    logger.info(`[Alliance Decline User] Successfully declined user ${user_id}`);
+    res.json({ success: true, data });
+  } catch (error) {
+    logger.error('[Alliance Decline User] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/alliance-update-user-role - Updates a member's role in the alliance.
+ *
+ * This endpoint allows alliance admins/leaders to change member roles.
+ * Requires appropriate permissions in the alliance.
+ *
+ * Request Body:
+ * - user_id: User ID of the member to update (required)
+ * - role: New role for the member (required)
+ *
+ * @name POST /api/alliance-update-user-role
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object with user_id and role
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with success/failure
+ */
+router.post('/alliance-update-user-role', express.json(), async (req, res) => {
+  if (!getAllianceId()) {
+    return res.status(400).json({ error: 'You are not in an alliance' });
+  }
+
+  const { user_id, role } = req.body;
+
+  if (!Number.isInteger(user_id) || user_id <= 0) {
+    return res.status(400).json({ error: 'Invalid user ID' });
+  }
+
+  if (!role || typeof role !== 'string') {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+
+  try {
+    const data = await apiCall('/alliance/update-user-role', 'POST', {
+      user_id,
+      role
+    });
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/league-info - Retrieves user's league and group standings.
+ *
+ * This endpoint fetches the user's current league level, group position,
+ * and related league information from the game API.
+ *
+ * @name GET /api/league-info
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with league data
+ */
+router.get('/league-info', async (req, res) => {
+  try {
+    const data = await apiCall('/league/get-user-league-and-group', 'POST', {});
+    res.json(data.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/alliance-leave - Leave the current alliance.
+ *
+ * @name POST /api/alliance-leave
+ * @function
+ * @memberof module:server/routes/alliance
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @returns {Promise<void>} Sends JSON response with result
+ */
+router.post('/alliance-leave', async (req, res) => {
+  if (!getAllianceId()) {
+    return res.status(400).json({ error: 'Not in an alliance' });
+  }
+
+  try {
+    const data = await apiCall('/alliance/leave-alliance', 'POST', {});
+
+    if (data.error || data.success === false) {
+      return res.status(500).json({ error: data.error || 'Failed to leave alliance' });
+    }
+
+    // Clear alliance ID from server state immediately
+    setAllianceId(null);
+    logger.info('[Alliance] Successfully left alliance, cleared alliance ID from server state');
+
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error leaving alliance:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-send-welcome', express.json(), async (req, res) => {
+  try {
+    const { user_id } = req.body;
+
+    if (!user_id || !Number.isInteger(user_id)) {
+      return res.status(400).json({ error: 'Valid user_id required' });
+    }
+
+    const { handleWelcomeCommand } = require('../chatbot/commands');
+    await handleWelcomeCommand(user_id.toString(), getUserId(), 'System');
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('[Alliance] Error sending welcome message:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-apply-join', express.json(), async (req, res) => {
+  try {
+    const { alliance_id, application_text } = req.body;
+
+    if (!alliance_id || !Number.isInteger(alliance_id)) {
+      return res.status(400).json({ error: 'Valid alliance_id required' });
+    }
+
+    const data = await apiCall('/alliance/apply-direct-to-join-alliance', 'POST', {
+      alliance_id,
+      application_text: application_text || ''
+    });
+
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error applying to join alliance:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-join-pool-any', express.json(), async (req, res) => {
+  try {
+    const data = await apiCall('/alliance/join-pool-for-any-alliance', 'POST', {});
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error joining pool for any alliance:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-leave-pool-any', express.json(), async (req, res) => {
+  try {
+    const data = await apiCall('/alliance/leave-pool-for-any-alliance', 'POST', {
+      time_requested_in_48h: true
+    });
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error leaving pool for any alliance:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-get-applications', express.json(), async (req, res) => {
+  try {
+    const data = await apiCall('/alliance/get-open-alliances', 'POST', {
+      limit: 50,
+      offset: 0,
+      filter: 'all'
+    });
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error getting applications:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-cancel-application', express.json(), async (req, res) => {
+  try {
+    const { alliance_id } = req.body;
+
+    if (!alliance_id || !Number.isInteger(alliance_id)) {
+      return res.status(400).json({ error: 'Valid alliance_id required' });
+    }
+
+    const data = await apiCall('/alliance/cancel-direct-application-to-join-alliance', 'POST', {
+      alliance_id
+    });
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error cancelling application:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-cancel-all-applications', express.json(), async (req, res) => {
+  try {
+    const data = await apiCall('/alliance/cancel-all-applications', 'POST', {});
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error cancelling all applications:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-join-pool-any', express.json(), async (req, res) => {
+  try {
+    const data = await apiCall('/alliance/join-pool-for-any-alliance', 'POST', {});
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error joining alliance pool:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/alliance-leave-pool-any', express.json(), async (req, res) => {
+  try {
+    const data = await apiCall('/alliance/leave-pool-for-any-alliance', 'POST', {});
+    res.json(data);
+  } catch (error) {
+    logger.error('[Alliance] Error leaving alliance pool:', error);
     res.status(500).json({ error: error.message });
   }
 });

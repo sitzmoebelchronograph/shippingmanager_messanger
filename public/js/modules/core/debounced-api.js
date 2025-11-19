@@ -54,7 +54,7 @@ export function cancelDebouncedFunction(key) {
  * Useful during cleanup or page unload.
  */
 export function cancelAllDebouncedFunctions() {
-  debounceTimeouts.forEach((timeoutId, key) => {
+  debounceTimeouts.forEach((timeoutId) => {
     clearTimeout(timeoutId);
   });
   debounceTimeouts.clear();

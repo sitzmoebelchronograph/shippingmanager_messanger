@@ -19,19 +19,17 @@ const logger = require('../utils/logger');
  * @param {boolean} isDM - Whether command came from DM
  */
 async function sendResponse(message, responseType, userId, isDM) {
-    // Bot owner ALWAYS gets public responses in alliance chat
-    const myUserId = getUserId();
-    if (userId === myUserId && !isDM) {
-        // If bot owner writes in alliance chat, always respond publicly
-        responseType = 'public';
-    } else if (responseType === 'dm' && userId === myUserId) {
-        // Never send DM to myself (bot owner)
-        responseType = 'public';
-    }
+    logger.debug(`[ChatBot] sendResponse: userId=${userId}, isDM=${isDM}, configResponseType=${responseType}`);
 
-    if (isDM && responseType === 'public') {
-        // If command came from DM but wants public response, send to DM instead
+    // Simple rule: Alliance chat → public, DM → dm
+    if (!isDM) {
+        // Alliance chat command → always public response
+        responseType = 'public';
+        logger.debug(`[ChatBot] Alliance chat command → public response`);
+    } else {
+        // DM command → always dm response
         responseType = 'dm';
+        logger.debug(`[ChatBot] DM command → dm response`);
     }
 
     switch (responseType) {

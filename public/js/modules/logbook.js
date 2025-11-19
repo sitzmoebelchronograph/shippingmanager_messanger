@@ -415,24 +415,6 @@ function renderLogTable() {
 }
 
 /**
- * Renders the details row for an expanded entry
- */
-function renderDetailsRow(entry) {
-  const detailsHtml = formatDetails(entry.details);
-
-  return `
-    <tr class="logbook-details-row">
-      <td colspan="4">
-        <div class="logbook-details">
-          <h4>Details</h4>
-          ${detailsHtml}
-        </div>
-      </td>
-    </tr>
-  `;
-}
-
-/**
  * Formats details object as nested HTML
  */
 function formatDetails(obj, level = 0) {
@@ -483,18 +465,6 @@ function formatDetails(obj, level = 0) {
 
   html += '</div>';
   return html;
-}
-
-/**
- * Toggles expanded state for an entry
- */
-function toggleExpanded(entryId) {
-  if (expandedEntries.has(entryId)) {
-    expandedEntries.delete(entryId);
-  } else {
-    expandedEntries.add(entryId);
-  }
-  renderLogTable();
 }
 
 /**

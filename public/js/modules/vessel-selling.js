@@ -236,7 +236,7 @@ async function fetchAllSellPrices(grouped) {
   const priceRequests = [];
 
   // Fetch prices for ALL vessels, not just the first one
-  Object.entries(grouped).forEach(([modelKey, group]) => {
+  Object.entries(grouped).forEach(([, group]) => {
     // Get prices for all harbor vessels in this group
     group.harborVessels.forEach(vessel => {
       priceRequests.push(
@@ -247,7 +247,7 @@ async function fetchAllSellPrices(grouped) {
         })
           .then(response => response.ok ? response.json() : null)
           .then(data => {
-            if (data && data.data) {
+            if (data && data.data && data.data.selling_price !== undefined) {
               priceMap.set(vessel.id, {
                 sellPrice: data.data.selling_price,
                 originalPrice: data.data.original_price
@@ -317,7 +317,6 @@ async function displaySellVessels() {
   }
 
   const grouped = groupVesselsByModel(filtered);
-  const modelCount = Object.keys(grouped).length;
 
   // First render the cards with static data (immediate display)
   let priceMap = new Map();

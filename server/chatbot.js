@@ -73,6 +73,7 @@ class ChatBot {
         const handlers = {
             handleForecastCommand: commandHandlers.handleForecastCommand,
             handleHelpCommand: commandHandlers.handleHelpCommand,
+            handleWelcomeCommand: commandHandlers.handleWelcomeCommand,
             sendResponse: messageSender.sendResponse
         };
 

@@ -75,13 +75,19 @@ function getLogDir() {
  * @private
  */
 let sessionCookie = null;
+let appPlatformCookie = null;
+let appVersionCookie = null;
 
 /**
  * Set the session cookie for API authentication
  * @param {string} cookie - Session cookie value
+ * @param {string} appPlatform - app_platform cookie value
+ * @param {string} appVersion - app_version cookie value
  */
-function setSessionCookie(cookie) {
+function setSessionCookie(cookie, appPlatform = null, appVersion = null) {
   sessionCookie = cookie;
+  appPlatformCookie = appPlatform;
+  appVersionCookie = appVersion;
 }
 
 /**
@@ -90,6 +96,22 @@ function setSessionCookie(cookie) {
  */
 function getSessionCookie() {
   return sessionCookie || 'COOKIE_NOT_INITIALIZED';
+}
+
+/**
+ * Get app_platform cookie
+ * @returns {string} app_platform cookie value
+ */
+function getAppPlatformCookie() {
+  return appPlatformCookie;
+}
+
+/**
+ * Get app_version cookie
+ * @returns {string} app_version cookie value
+ */
+function getAppVersionCookie() {
+  return appVersionCookie;
 }
 
 /**
@@ -262,6 +284,8 @@ const config = {
 module.exports = config;
 module.exports.setSessionCookie = setSessionCookie;
 module.exports.getSessionCookie = getSessionCookie;
+module.exports.getAppPlatformCookie = getAppPlatformCookie;
+module.exports.getAppVersionCookie = getAppVersionCookie;
 module.exports.getAppDataDir = getAppDataDir;
 module.exports.getLocalAppDataDir = getLocalAppDataDir;
 module.exports.getLogDir = getLogDir;

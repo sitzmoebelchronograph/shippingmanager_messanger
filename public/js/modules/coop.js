@@ -108,9 +108,9 @@ function renderMemberCard(member, showButton = true, disabled = false, buttonTex
   let buttonHtml = '';
   if (showButton) {
     if (!disabled) {
-      buttonHtml = `<button onclick="window.sendCoopMax(${member.user_id})" class="coop-send-btn">${buttonText}</button>`;
+      buttonHtml = `<button onclick="window.sendCoopMax(${member.user_id})" class="coop-send-btn" data-permanently-disabled="false">${buttonText}</button>`;
     } else {
-      buttonHtml = `<button disabled class="coop-send-btn">${buttonText}</button>`;
+      buttonHtml = `<button disabled class="coop-send-btn" data-permanently-disabled="true">${buttonText}</button>`;
     }
   }
 
@@ -357,8 +357,17 @@ export async function sendCoopMax(userId) {
     // Update badge immediately (don't wait for WebSocket)
     await updateCoopBadge();
 
-    // Refresh overlay to show updated counts
-    await showCoopOverlay();
+    // Check if new alliance tabs overlay is open
+    const coopOverlay = document.getElementById('coopOverlay');
+    const isAllianceTabsOpen = coopOverlay && !coopOverlay.classList.contains('hidden');
+
+    if (isAllianceTabsOpen && window.switchTab) {
+      // Reload coop tab in new alliance tabs overlay
+      await window.switchTab('coop');
+    } else {
+      // Refresh old overlay to show updated counts
+      await showCoopOverlay();
+    }
 
   } catch (error) {
     console.error('[Coop] Error sending max vessels:', error);
@@ -387,8 +396,10 @@ export function lockCoopButtons() {
 export function unlockCoopButtons() {
   const coopButtons = document.querySelectorAll('.coop-send-btn');
   coopButtons.forEach(btn => {
-    // Only re-enable buttons that should be enabled (not those with "No vessels" etc)
-    if (!btn.textContent.includes('No vessels') && !btn.textContent.includes('Not enabled')) {
+    // Only re-enable buttons that are NOT permanently disabled
+    // Permanently disabled = OUT OF ORDER, no vessels, not enabled, etc.
+    const isPermanentlyDisabled = btn.getAttribute('data-permanently-disabled') === 'true';
+    if (!isPermanentlyDisabled) {
       btn.disabled = false;
     }
   });

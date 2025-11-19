@@ -4,13 +4,15 @@ A comprehensive "Addon" for the beloved game [Shipping Manager](https://shipping
 
 ## Key Features at a Glance
 
-* **Harbor Map**: Interactive world map with live fleet tracking, vessel/port details, route visualization, **and maritime POI (museums, shipwrecks)**
+* **Harbor Map**: Interactive world map with live fleet tracking, vessel/port details, route visualization, **weather overlays (rain, temperature, wind)**, and **maritime POI (museums, shipwrecks)**
 * **Logbook**: Comprehensive event tracking for alliance activities, vessel operations, and game history
-* **AutoPilot System**: Intelligent automation for fuel/CO2 purchasing, vessel operations, and more
+* **AutoPilot System**: Intelligent automation for fuel/CO2 purchasing, vessel operations, hijacking negotiation, and more
+* **ChatBot**: Automated alliance assistant with **role-based commands**, scheduled announcements, and custom command support
 * **Mobile Support**: As a Steam player, you can now receive **mobile notifications** via your Wi-Fi at home
 * **Fleet Management**: Streamlined vessel purchasing, **bulk repairs**, automated departures, and **bulk selling with shopping cart**
 * **Price Alerts**: Set up your own custom price alerts!
 * **Alliance Cooperation**: Easily manage and send cooperation vessels to alliance members
+* **Company Profile**: Track your achievements, progress, and company statistics
 * **Bug-Free Chat**: Alliance chat and private messaging **without the page reload bugs** that Steam players commonly experience with [Shippingmanager.cc](https://shippingmanager.cc/)
 
 ...and much more!
@@ -39,6 +41,7 @@ Join the discord community [SM-Coplit](https://discord.gg/rw4yKxp7Mv)
   - [Alliance Cooperation](#alliance-cooperation)
   - [Hijacking/Piracy Management](#hijackingpiracy-management)
   - [Forecast Calendar](#forecast-calendar)
+  - [Company Profile](#company-profile)
   - [Header Data Display](#header-data-display)
   - [Notifications System](#notifications-system)
   - [Anchor Point Management](#anchor-point-management)
@@ -224,8 +227,13 @@ Interactive world map visualization of your fleet, ports, and routes:
   - Standard light theme (default map view)
   - Dark mode with optimized controls and tooltips
   - **Satellite imagery** with transparent controls and adapted UI
-  - Weather radar overlay (rain visualization)
   - All themes with optimized control styling and readability
+- **Weather Overlays**:
+  - **Rain radar overlay**: Real-time precipitation visualization
+  - **Temperature overlay**: Global temperature map with color-coded zones
+  - **Wind overlay**: Wind speed and direction visualization
+  - Toggle controls for each overlay layer
+  - Data from OpenWeatherMap
 - **Vessel Detail Panel** (draggable):
   - Complete vessel specifications (capacity, range, speed, fuel, CO2)
   - Current position and status
@@ -318,6 +326,25 @@ Plan your fuel and CO2 purchases strategically with detailed price forecasts:
   - Identify the cheapest times to buy fuel and CO2
   - Compare prices across different days
 
+### Company Profile
+
+View and track your company achievements and statistics:
+
+- **Company Overview**:
+  - Company name and basic information
+  - Achievement progress tracking
+  - Company statistics and milestones
+- **Achievement Tracking**:
+  - Visual achievement table with progress indicators
+  - Achievement types (e.g., revenue, vessels, routes)
+  - Progress bars showing completion status
+  - Completion dates for unlocked achievements
+  - Organized table layout with proper column alignment
+- **Statistics Dashboard**:
+  - Company performance metrics
+  - Historical data and trends
+  - Visual progress tracking
+
 ### Header Data Display
 
 Real-time monitoring of critical game metrics in the UI header:
@@ -363,10 +390,12 @@ Automated assistant for alliance communication and scheduled announcements:
 - `!forecast <day>` - Get forecast for specific day (1-31)
 - `!forecast <day> <timezone>` - Get forecast with timezone conversion
 - `!help` - Display available commands and usage
+- `!welcome <userID>` - Send welcome message to new alliance members (Admin only: CEO/COO/Management/Interim CEO)
 - Customizable command prefix (default: !)
 - Configurable cooldown to prevent spam (default: 30 seconds)
 - Commands work in alliance chat and/or private messages (configurable per command)
 - **Smart Validation**: Bot only responds to exact command formats (ignores invalid arguments or random text)
+- **Role-Based Access Control**: Admin commands restricted to CEO, COO, Management, and Interim CEO roles
 
 **Scheduled Messages**:
 - Daily forecast announcements at configured time (UTC)
@@ -408,7 +437,11 @@ Automated assistant for alliance communication and scheduled announcements:
 - Continuously monitors vessels in port
 - Automatically departs all ready vessels when fuel is available
 - **Important**: We check the demand per port before sending - vessels are only sent if demand exists at the destination port
-- **Configurable vessel utilization threshold**: You can set the minimum cargo load percentage required before a vessel will be sent (e.g., only depart if vessel is at least 70% full)
+- **Two Operation Modes**:
+  - **Use Route Defaults Mode** (default): Respects per-route configured settings (speed, utilization)
+  - **Custom Global Settings Mode**: Override with global settings (minVesselUtilization, autoVesselSpeed)
+- **Configurable vessel utilization threshold**: Set minimum cargo load percentage required before departure (e.g., only depart if vessel is at least 70% full)
+- **Configurable vessel speed**: Set vessel speed as percentage of max_speed for fuel optimization
 - Detects failed departures (insufficient fuel/CO2)
 - Shows green success notification for successful departures
 - Shows red error notification for failed departures ("Auto-Depart\nNo fuel - no vessels sent")
@@ -443,8 +476,10 @@ Automated assistant for alliance communication and scheduled announcements:
 - Automated ransom negotiation
 - Automatically negotiates with pirates to reduce ransom demands
 - Uses aggressive negotiation tactics to achieve significant price reductions you can't have normally ;-)
-- Configurable price threshold and offer percentage
-- Automatically accepts and pays when price is acceptable
+- **Counter-Offer Strategy**: Makes 25% offers (25% of pirate's current demand)
+- **Max 2 Counter-Offers**: After 2 counter-offers, automatically accepts the next pirate price
+- **No Price Threshold**: Always accepts after 2 negotiations regardless of final price
+- Automatically verifies payment and releases vessel
 - Real-time negotiation notifications show progress
 
 ### HTTPS Support & Certificate Management

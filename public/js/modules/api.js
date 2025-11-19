@@ -65,7 +65,8 @@ export async function fetchAllianceMembers() {
   try {
     const response = await fetch(window.apiUrl('/api/alliance-members'));
     if (!response.ok) throw new Error('Failed to load alliance members');
-    return await response.json();
+    const data = await response.json();
+    return data.members || [];
   } catch (error) {
     console.error('Error loading alliance members:', error);
     return [];

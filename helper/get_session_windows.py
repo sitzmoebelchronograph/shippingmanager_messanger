@@ -90,9 +90,18 @@ else:
 # ENCRYPTION HELPERS
 # =============================================================================
 
-def encrypt_cookie(cookie, user_id):
-    """Encrypt cookie using OS keyring or fallback encryption."""
-    account_name = f"session_{user_id}"
+def encrypt_cookie(cookie, user_id_or_account_name):
+    """Encrypt cookie using OS keyring or fallback encryption.
+
+    Args:
+        cookie: The cookie value to encrypt
+        user_id_or_account_name: Either a user_id (will add 'session_' prefix) or full account name
+    """
+    # If it contains underscore, it's a full account name, otherwise add 'session_' prefix
+    if '_' in str(user_id_or_account_name):
+        account_name = user_id_or_account_name
+    else:
+        account_name = f"session_{user_id_or_account_name}"
 
     if KEYRING_AVAILABLE:
         try:
@@ -109,7 +118,7 @@ def encrypt_cookie(cookie, user_id):
             keyring.set_password(SERVICE_NAME, account_name, cookie_str)
             return f"KEYRING:{account_name}"
         except Exception as e:
-            print(f"[!] Keyring storage failed, using fallback: {e}", file=sys.stderr)
+            print(f"[!] Keyring storage failed for {account_name}, using fallback: {e}", file=sys.stderr)
 
     # Fallback: Basic obfuscation (not as secure as keyring!)
     # This is platform-specific but better than plaintext
@@ -184,20 +193,41 @@ def load_sessions():
         print(f"[!] Error loading sessions: {e}", file=sys.stderr)
         return {}
 
-def save_session(user_id, cookie, company_name, login_method):
-    """Save session to sessions.json with encrypted cookie."""
+def save_session(user_id, cookie, company_name, login_method, app_platform=None, app_version=None):
+    """Save session to sessions.json with encrypted cookies."""
     try:
         sessions = load_sessions()
 
-        # Encrypt the cookie before storing
-        encrypted_cookie = encrypt_cookie(cookie, user_id)
+        # Handle dict input (all cookies) or string input (backwards compatibility)
+        if isinstance(cookie, dict):
+            # New format: dict with all cookies
+            shipping_cookie = cookie.get('shipping_manager_session')
+            app_platform = cookie.get('app_platform', app_platform)
+            app_version = cookie.get('app_version', app_version)
+        else:
+            # Old format: just the session cookie as string
+            shipping_cookie = cookie
 
-        sessions[str(user_id)] = {
+        # Encrypt the cookies before storing
+        encrypted_cookie = encrypt_cookie(shipping_cookie, user_id)
+
+        session_data = {
             'cookie': encrypted_cookie,
             'timestamp': int(time.time()),
             'company_name': company_name,
             'login_method': login_method
         }
+
+        # Add app_platform and app_version if available
+        if app_platform:
+            encrypted_platform = encrypt_cookie(app_platform, f'app_platform_{user_id}')
+            session_data['app_platform'] = encrypted_platform
+
+        if app_version:
+            encrypted_version = encrypt_cookie(app_version, f'app_version_{user_id}')
+            session_data['app_version'] = encrypted_version
+
+        sessions[str(user_id)] = session_data
 
         # Ensure directory exists
         SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -220,23 +250,39 @@ def validate_session_cookie(cookie, user_id=None):
     """Validate session cookie with API. Returns user data if valid, None otherwise.
 
     Args:
-        cookie: Either plaintext cookie or encrypted cookie data
+        cookie: Either plaintext cookie string, encrypted cookie data, or dict with all cookies
         user_id: User ID (required if cookie is encrypted)
     """
-    # Decrypt if encrypted
-    if is_encrypted(cookie):
-        if not user_id:
-            print("[!] Cannot decrypt cookie without user_id", file=sys.stderr)
-            return None
-        cookie = decrypt_cookie(cookie, user_id)
-        if not cookie:
-            return None
+    # Handle dict input (all cookies)
+    if isinstance(cookie, dict):
+        session_cookie = cookie.get('shipping_manager_session')
+        app_platform = cookie.get('app_platform')
+        app_version = cookie.get('app_version')
+    else:
+        # Decrypt if encrypted
+        if is_encrypted(cookie):
+            if not user_id:
+                print("[!] Cannot decrypt cookie without user_id", file=sys.stderr)
+                return None
+            cookie = decrypt_cookie(cookie, user_id)
+            if not cookie:
+                return None
+        session_cookie = cookie
+        app_platform = None
+        app_version = None
 
     try:
+        # Build cookie header with all available cookies
+        cookie_header = f'{TARGET_COOKIE_NAME}={session_cookie}'
+        if app_platform:
+            cookie_header += f'; app_platform={app_platform}'
+        if app_version:
+            cookie_header += f'; app_version={app_version}'
+
         response = requests.post(
             f"https://{TARGET_DOMAIN}/api/user/get-user-settings",
             headers={
-                'Cookie': f'{TARGET_COOKIE_NAME}={cookie}',
+                'Cookie': cookie_header,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             },
             timeout=10,
@@ -444,7 +490,9 @@ def get_expired_sessions_with_methods():
     return expired_with_methods
 
 def get_user_from_cookie(cookie):
-    """Get user data from a validated cookie."""
+    """Get user data from a validated cookie (string or dict)."""
+    # Pass the full cookie (dict or string) to validate_session_cookie
+    # It will handle extracting the right cookies
     return validate_session_cookie(cookie)
 
 def show_login_dialog():
@@ -554,23 +602,23 @@ def show_expired_sessions_dialog(expired_sessions):
         return None
 
 # --- Steam Cookie Paths ---
-COOKIE_PATH = os.path.join(
-    os.environ['USERPROFILE'],
-    'AppData',
-    'Local',
-    'Steam',
-    'htmlcache',
-    'Network',
-    'Cookies'
-)
-LOCAL_PREFS_PATH = os.path.join(
-    os.environ['USERPROFILE'],
-    'AppData',
-    'Local',
-    'Steam',
-    'htmlcache',
-    'LocalPrefs.json'
-)
+# Support both old and new Steam paths
+STEAM_BASE = os.path.join(os.environ['USERPROFILE'], 'AppData', 'Local', 'Steam', 'htmlcache')
+
+# Try new paths first (with Default subfolder)
+COOKIE_PATH = os.path.join(STEAM_BASE, 'Default', 'Network', 'Cookies')
+LOCAL_PREFS_PATH = os.path.join(STEAM_BASE, 'Local State')
+
+# Fallback to old paths if new ones don't exist
+if not os.path.exists(COOKIE_PATH):
+    COOKIE_PATH_OLD = os.path.join(STEAM_BASE, 'Network', 'Cookies')
+    if os.path.exists(COOKIE_PATH_OLD):
+        COOKIE_PATH = COOKIE_PATH_OLD
+
+if not os.path.exists(LOCAL_PREFS_PATH):
+    LOCAL_PREFS_PATH_OLD = os.path.join(STEAM_BASE, 'LocalPrefs.json')
+    if os.path.exists(LOCAL_PREFS_PATH_OLD):
+        LOCAL_PREFS_PATH = LOCAL_PREFS_PATH_OLD
 
 # =============================================================================
 # STEAM LOGIN METHOD
@@ -594,7 +642,7 @@ def decrypt_aes_gcm(encrypted_value: bytes, key: bytes) -> str | None:
         return None
 
 def get_aes_key(prefs_path: str) -> bytes | None:
-    """Extracts and decrypts the DPAPI-protected AES key from LocalPrefs.json."""
+    """Extracts and decrypts the DPAPI-protected AES key from LocalPrefs.json or Local State."""
     try:
         with open(prefs_path, 'r', encoding='utf-8') as f:
             prefs_data = json.load(f)
@@ -608,6 +656,27 @@ def get_aes_key(prefs_path: str) -> bytes | None:
             0
         )
         return decrypted_key
+    except FileNotFoundError:
+        # Try alternative path (LocalPrefs.json vs Local State)
+        alt_path = prefs_path.replace('Local State', 'Default/LocalPrefs.json') if 'Local State' in prefs_path else prefs_path.replace('Default/LocalPrefs.json', 'Local State')
+        if os.path.exists(alt_path):
+            try:
+                with open(alt_path, 'r', encoding='utf-8') as f:
+                    prefs_data = json.load(f)
+                encrypted_key_b64 = prefs_data['os_crypt']['encrypted_key']
+                encrypted_key_bytes = base64.b64decode(encrypted_key_b64)
+                _, decrypted_key = win32crypt.CryptUnprotectData(
+                    encrypted_key_bytes[5:],
+                    None,
+                    None,
+                    None,
+                    0
+                )
+                return decrypted_key
+            except Exception as e2:
+                print(f"[-] ERROR decrypting AES key from alternative path: {e2}", file=sys.stderr)
+        print(f"[-] ERROR: Neither Local State nor LocalPrefs.json found", file=sys.stderr)
+        return None
     except Exception as e:
         print(f"[-] ERROR decrypting AES key (DPAPI): {e}", file=sys.stderr)
         return None
@@ -742,23 +811,55 @@ def get_steam_cookie(db_path: str, prefs_path: str, domain: str, target_name: st
         print(f"[-] CRITICAL ERROR during cookie decryption: {e}", file=sys.stderr)
         return None
 
+def get_all_steam_cookies(db_path: str, prefs_path: str, domain: str):
+    """Extract ALL cookies for a domain from Steam."""
+    aes_key = get_aes_key(prefs_path)
+    if not aes_key:
+        return None
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, encrypted_value FROM cookies WHERE host_key LIKE ?", (f'%{domain}',))
+        results = cursor.fetchall()
+
+        if not results:
+            return None
+
+        cookies = {}
+        for name, encrypted_value in results:
+            decrypted = decrypt_aes_gcm(encrypted_value, aes_key)
+            if decrypted:
+                cookies[name] = urllib.parse.unquote(decrypted).strip()
+
+        conn.close()
+        return cookies if cookies else None
+
+    except Exception as e:
+        print(f"[-] ERROR reading cookies: {e}", file=sys.stderr)
+        return None
+
 def steam_login():
-    """Main function for Steam login method. Returns cookie or None."""
+    """Main function for Steam login method. Returns dict with all cookies or None."""
     print(f"[*] Starting Steam cookie extraction for '{TARGET_DOMAIN}'...", file=sys.stderr)
 
     if not os.path.exists(COOKIE_PATH):
         print(f"[-] CRITICAL ERROR: Cookies database not found at {COOKIE_PATH}", file=sys.stderr)
         print("[-] Please ensure Steam is installed and you have logged into Shipping Manager via Steam browser.", file=sys.stderr)
         return None
-    elif not os.path.exists(LOCAL_PREFS_PATH):
-        print(f"[-] CRITICAL ERROR: LocalPrefs.json not found at {LOCAL_PREFS_PATH}", file=sys.stderr)
-        return None
 
-    cookie = get_steam_cookie(COOKIE_PATH, LOCAL_PREFS_PATH, TARGET_DOMAIN, TARGET_COOKIE_NAME)
+    # Try to get AES key (will try both Local State and LocalPrefs.json)
+    if not os.path.exists(LOCAL_PREFS_PATH):
+        alt_path = LOCAL_PREFS_PATH.replace('Local State', 'Default/LocalPrefs.json')
+        if not os.path.exists(alt_path):
+            print(f"[-] CRITICAL ERROR: Neither Local State nor LocalPrefs.json found", file=sys.stderr)
+            return None
 
-    if cookie:
+    cookies = get_all_steam_cookies(COOKIE_PATH, LOCAL_PREFS_PATH, TARGET_DOMAIN)
+
+    if cookies and 'shipping_manager_session' in cookies:
         print("[+] Steam login successful!", file=sys.stderr)
-        return cookie
+        return cookies
     else:
         print("[-] Failed to extract cookie from Steam", file=sys.stderr)
         return None
@@ -1337,9 +1438,14 @@ def main(save_only=False):
                             # Debug: Log cookie before save
                             debug_append = []
                             debug_append.append(f"\n4. Before save_session() [REFRESH]:")
-                            debug_append.append(f"   Value: {renewal_cookie[:60]}...{renewal_cookie[-20:]}")
-                            debug_append.append(f"   Length: {len(renewal_cookie)}")
-                            debug_append.append(f"   Contains %: {('%' in renewal_cookie)}")
+                            if isinstance(renewal_cookie, dict):
+                                debug_append.append(f"   Type: dict with {len(renewal_cookie)} cookies")
+                                for key in renewal_cookie:
+                                    debug_append.append(f"   {key}: {len(renewal_cookie[key])} chars")
+                            else:
+                                debug_append.append(f"   Value: {renewal_cookie[:60]}...{renewal_cookie[-20:]}")
+                                debug_append.append(f"   Length: {len(renewal_cookie)}")
+                                debug_append.append(f"   Contains %: {('%' in renewal_cookie)}")
 
                             save_session(
                                 str(renewal_user_data['id']),

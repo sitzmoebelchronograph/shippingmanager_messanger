@@ -30,8 +30,10 @@ const router = express.Router();
 /**
  * POST /api/user/get-company
  * Returns user company data including capacity values
+ * Can fetch own company (no user_id) or another player's company (with user_id)
  *
  * @route POST /api/user/get-company
+ * @param {number} [req.body.user_id] - Optional user ID to fetch (omit for own company)
  *
  * @returns {object} Company data including:
  *   - Company details
@@ -42,11 +44,36 @@ const router = express.Router();
  */
 router.post('/get-company', express.json(), async (req, res) => {
   try {
-    const data = await apiCall('/user/get-company', 'POST', {});
+    const { user_id } = req.body;
+    const requestBody = user_id ? { user_id } : {};
+    const data = await apiCall('/user/get-company', 'POST', requestBody);
     res.json(data);
   } catch (error) {
     logger.error('Error fetching company data:', error);
     res.status(500).json({ error: 'Failed to fetch company data' });
+  }
+});
+
+/**
+ * POST /api/staff/get-user-staff
+ * Returns staff information including morale, salaries, and training perks
+ *
+ * @route POST /api/staff/get-user-staff
+ *
+ * @returns {object} Staff data including:
+ *   - data.info: Crew and management morale summary
+ *   - data.staff: Array of staff types with salaries, training, etc.
+ *   - user: Current user data
+ *
+ * @error 500 - Failed to fetch staff data
+ */
+router.post('/staff/get-user-staff', async (req, res) => {
+  try {
+    const data = await apiCall('/staff/get-user-staff', 'POST', {});
+    res.json(data);
+  } catch (error) {
+    logger.error('Error fetching staff data:', error);
+    res.status(500).json({ error: 'Failed to fetch staff data' });
   }
 });
 
@@ -240,7 +267,7 @@ router.get('/version/check', async (req, res) => {
         updateAvailable: false,
         error: 'Failed to check for updates'
       });
-    } catch (fallbackError) {
+    } catch {
       res.status(500).json({ error: 'Failed to check version' });
     }
   }

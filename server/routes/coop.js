@@ -333,4 +333,43 @@ router.post('/coop/send-max', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/coop/update-settings - Updates alliance cooperation settings
+ *
+ * Updates the user's coop settings including enabled status and restrictions.
+ *
+ * Request Body:
+ * {
+ *   coop_enabled: boolean,      // Enable/disable coop
+ *   capacity_min: number,       // Minimum vessel capacity (0 = no restriction)
+ *   hhmm_from: number,          // Start hour UTC (0-23)
+ *   hhmm_to: number,            // End hour UTC (1-24)
+ *   time_range_enabled: boolean // Enable time restriction
+ * }
+ *
+ * Response: Game API response
+ */
+router.post('/coop/update-settings', async (req, res) => {
+  try {
+    const settings = req.body;
+
+    logger.info('[COOP] Updating settings:', settings);
+
+    const result = await apiCall('/coop/update-settings', 'POST', settings);
+
+    // Check if API returned an error
+    if (result.error || result.success === false) {
+      logger.error('[COOP] API returned error:', result);
+      return res.status(500).json({ error: result.error || 'API request failed' });
+    }
+
+    logger.info('[COOP] Settings updated successfully:', result);
+
+    res.json(result);
+  } catch (error) {
+    logger.error('[COOP] Error updating settings:', error);
+    res.status(500).json({ error: 'Failed to update coop settings' });
+  }
+});
+
 module.exports = router;

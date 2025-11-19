@@ -28,7 +28,7 @@
  * @requires api - Backend API calls for chat data and company names
  */
 
-import { escapeHtml, showSideNotification, handleNotifications, showNotification, formatNumber, showChatNotification, getFuelPriceClass, getCO2PriceClass } from './utils.js';
+import { escapeHtml, showSideNotification, handleNotifications, showNotification, formatNumber, showChatNotification, getFuelPriceClass } from './utils.js';
 import { getCompanyNameCached, fetchChat, sendChatMessage, fetchAllianceMembers, invalidateVesselCache } from './api.js';
 import { updateEventDiscount } from './forecast-calendar.js';
 import { updateEventData } from './event-info.js';
@@ -38,6 +38,7 @@ import { showAnchorTimer } from './anchor-purchase.js';
 import { updateCurrentCash, updateCurrentFuel, updateCurrentCO2 } from './bunker-management.js';
 import { refreshVesselsForSale } from './vessel-selling.js';
 import { updateBadge, updateButtonState, updateButtonTooltip } from './badge-manager.js';
+import { refreshCurrentTab, getCurrentTab } from './alliance-tabs.js';
 
 /**
  * Converts UTC timestamp string to local timezone string using browser locale.
@@ -73,10 +74,10 @@ let allianceMembers = [];
 
 /**
  * Auto-scroll flag controlling scroll-to-bottom behavior.
- * Set to true when user sends message or is near bottom. Prevents forced scrolling when reading history.
+ * Set to true when user sends message. Prevents forced scrolling when reading history.
  * @type {boolean}
  */
-let autoScroll = true;
+let autoScroll = false;
 
 /**
  * Parses message text and converts user ID mentions to clickable company name links.
@@ -439,6 +440,12 @@ function handleMentionAutocomplete(messageInput) {
   if (match) {
     const query = match[1].toLowerCase();
 
+    // Safety check: ensure allianceMembers is an array before filtering
+    if (!Array.isArray(allianceMembers)) {
+      hideMemberSuggestions();
+      return;
+    }
+
     const filteredMembers = allianceMembers.filter(member =>
       member.company_name.toLowerCase().includes(query)
     ).slice(0, 10);
@@ -693,9 +700,12 @@ export function initWebSocket() {
     ws.onmessage = (event) => {
       const { type, data } = JSON.parse(event.data);
       if (type === 'chat_update' || type === 'message_sent') {
-        loadMessages(chatFeed);
-        // Reload alliance members for @mention autocomplete (in case new member joined)
-        loadAllianceMembers();
+        // Only load chat messages if user is in an alliance
+        if (window.settings && window.settings.allianceId) {
+          loadMessages(chatFeed);
+          // Reload alliance members for @mention autocomplete (in case new member joined)
+          loadAllianceMembers();
+        }
       } else if (type === 'settings_update') {
         if (window.handleSettingsUpdate) {
           window.handleSettingsUpdate(data);
@@ -745,7 +755,7 @@ export function initWebSocket() {
       } else if (type === 'unread_messages_update') {
         handleUnreadMessagesUpdate(data);
       } else if (type === 'messenger_update') {
-        // Update messenger badge from 10-second polling
+        // Update messenger badge from 20-second polling
         handleMessengerUpdate(data);
       } else if (type === 'autopilot_status') {
         // Call global function to update pause/play button
@@ -761,8 +771,16 @@ export function initWebSocket() {
         handleUserActionNotification(data);
       } else if (type === 'coop_update') {
         handleCoopUpdate(data);
+      } else if (type === 'alliance_changed') {
+        handleAllianceChanged(data);
+      } else if (type === 'alliance_index_ready') {
+        handleAllianceIndexReady(data);
       } else if (type === 'company_type_update') {
         handleCompanyTypeUpdate(data);
+      } else if (type === 'staff_training_points_update') {
+        handleStaffTrainingPointsUpdate(data);
+      } else if (type === 'staff_update') {
+        handleStaffUpdate(data);
       } else if (type === 'header_data_update') {
         handleHeaderDataUpdate(data);
       } else if (type === 'event_data_update') {
@@ -2382,7 +2400,7 @@ function handleUnreadMessagesUpdate(data) {
 }
 
 /**
- * Handles messenger updates from 10-second polling
+ * Handles messenger updates from 20-second polling
  * This replaces all other messenger polling mechanisms
  */
 function handleMessengerUpdate(data) {
@@ -2391,7 +2409,7 @@ function handleMessengerUpdate(data) {
 
   // Only log in detailed mode or if there are unread messages
   if (AUTOPILOT_LOG_LEVEL === 'detailed' || messages > 0) {
-    console.log(`[Messenger] 10-sec poll: ${messages} unread message${messages === 1 ? '' : 's'}`);
+    console.log(`[Messenger] 20-sec poll: ${messages} unread message${messages === 1 ? '' : 's'}`);
   }
 
   // Get previous count for notification comparison
@@ -2449,6 +2467,7 @@ function handleUserActionNotification(data) {
  */
 function handleCoopUpdate(data) {
   const { available, cap, coop_boost } = data;
+
   updateDataCache.coop = { available, cap, coop_boost };
   if (AUTOPILOT_LOG_LEVEL === 'detailed') {
     console.log(`[Autopilot] COOP update: ${available}/${coop_boost || cap} available`);
@@ -2458,6 +2477,11 @@ function handleCoopUpdate(data) {
   const color = available === 0 ? 'GREEN' : 'RED';
   updateBadge('coopBadge', available, available > 0, color);
 
+  // Update coop tab badge if available
+  if (window.updateCoopTabBadge) {
+    window.updateCoopTabBadge(available);
+  }
+
   // Update header display using centralized function
   if (window.updateCoopDisplay) {
     window.updateCoopDisplay(cap, available);
@@ -2466,6 +2490,175 @@ function handleCoopUpdate(data) {
   // Cache for next page load
   if (window.saveBadgeCache) {
     window.saveBadgeCache({ coop: { available, cap, coop_boost } });
+  }
+}
+
+/**
+ * Handles alliance change events from backend.
+ * Clears chat, reloads messages, shows notification to user.
+ */
+async function handleAllianceChanged(data) {
+  const { old_alliance_name, new_alliance_name, old_alliance_id, new_alliance_id } = data;
+
+  console.log(`[Alliance] Alliance changed: ${old_alliance_name || 'None'} -> ${new_alliance_name || 'None'}`);
+
+  // Clear current messages
+  allMessages = [];
+
+  // If user left alliance (new_alliance_id === null), hide ALL alliance UI
+  if (new_alliance_id === null) {
+    // Update settings to reflect no alliance
+    if (window.settings) {
+      window.settings.allianceId = null;
+    }
+
+    if (window.hideAllAllianceUI) {
+      await window.hideAllAllianceUI();
+    } else {
+      const allianceChatIcon = document.querySelector('[data-action="allianceChat"]');
+      if (allianceChatIcon) {
+        allianceChatIcon.style.display = 'none';
+      }
+
+      if (window.updateButtonVisibility) {
+        window.updateButtonVisibility('allianceChat', false);
+      }
+
+      const coopIcon = document.querySelector('[data-action="coop"]');
+      if (coopIcon) {
+        coopIcon.style.display = 'none';
+        const badge = coopIcon.querySelector('.map-icon-badge');
+        if (badge) {
+          badge.textContent = '0';
+          badge.classList.add('hidden');
+        }
+      }
+
+      if (window.updateBadge) {
+        window.updateBadge('coopBadge', 0, false, 'GREEN');
+      }
+
+      if (window.saveBadgeCache) {
+        window.saveBadgeCache({ coop: null, alliance_chat_unread: 0 });
+      }
+    }
+
+    // If alliance overlay is open, switch to search tab
+    const coopOverlay = document.getElementById('coopOverlay');
+    if (coopOverlay && !coopOverlay.classList.contains('hidden')) {
+      if (window.switchAllianceTab) {
+        await window.switchAllianceTab('search');
+      }
+    }
+  } else if (old_alliance_id === null) {
+    // User JOINED alliance - show ALL alliance UI
+    // Update settings to reflect new alliance
+    if (window.settings) {
+      window.settings.allianceId = new_alliance_id;
+    }
+
+    // Reload chat feed for new alliance
+    const chatFeed = document.getElementById('chatFeed');
+    if (chatFeed) {
+      loadMessages(chatFeed);
+    }
+
+    // Reload alliance members for @mention autocomplete
+    loadAllianceMembers();
+
+    if (window.showAllAllianceUI) {
+      await window.showAllAllianceUI();
+    } else {
+      const allianceChatIcon = document.querySelector('[data-action="allianceChat"]');
+      if (allianceChatIcon) {
+        allianceChatIcon.style.display = '';
+      }
+
+      const coopIcon = document.querySelector('[data-action="coop"]');
+      if (coopIcon) {
+        coopIcon.style.display = '';
+      }
+
+      if (window.updateButtonVisibility) {
+        window.updateButtonVisibility('allianceChat', true);
+        window.updateButtonVisibility('coop', true);
+      }
+    }
+
+    // If alliance overlay is open, force reload all tabs
+    const coopOverlay = document.getElementById('coopOverlay');
+    if (coopOverlay && !coopOverlay.classList.contains('hidden')) {
+      // Clear all tab caches to force fresh data
+      if (window.clearAllianceTabCache) {
+        window.clearAllianceTabCache();
+      }
+
+      // Switch to alliance info tab (will trigger reload)
+      if (window.switchAllianceTab) {
+        await window.switchAllianceTab('allianz');
+      }
+    }
+  } else {
+    // User SWITCHED from one alliance to another
+    // Update settings to reflect new alliance
+    if (window.settings) {
+      window.settings.allianceId = new_alliance_id;
+    }
+
+    // Reload chat feed for new alliance
+    const chatFeed = document.getElementById('chatFeed');
+    if (chatFeed) {
+      loadMessages(chatFeed);
+    }
+
+    // Reload alliance members for @mention autocomplete
+    loadAllianceMembers();
+
+    // If alliance overlay is open, force reload all tabs
+    const coopOverlay = document.getElementById('coopOverlay');
+    if (coopOverlay && !coopOverlay.classList.contains('hidden')) {
+      // Clear all tab caches to force fresh data
+      if (window.clearAllianceTabCache) {
+        window.clearAllianceTabCache();
+      }
+
+      // Switch to alliance info tab (will trigger reload)
+      if (window.switchAllianceTab) {
+        await window.switchAllianceTab('allianz');
+      }
+    }
+  }
+
+  // Show notification to user
+  let message;
+  if (new_alliance_id === null) {
+    message = `You left your alliance "${old_alliance_name}".`;
+  } else if (old_alliance_id === null) {
+    message = `You joined alliance "${new_alliance_name}"!`;
+  } else {
+    message = `You switched from "${old_alliance_name}" to "${new_alliance_name}"!`;
+  }
+
+  showNotification('Alliance Status', {
+    body: message,
+    icon: '/favicon.ico',
+    tag: 'alliance-change'
+  });
+}
+
+/**
+ * Handles alliance index ready notification from backend.
+ * Shows notification when alliance search indexing is complete.
+ */
+async function handleAllianceIndexReady(data) {
+  const { total } = data;
+
+  console.log(`[Alliance Search] Index ready: ${total} alliances`);
+
+  showNotification('success', `Alliance Index completed<br>Now you're able to search for alliances`);
+
+  if (getCurrentTab() === 'search') {
+    await refreshCurrentTab();
   }
 }
 
@@ -2489,6 +2682,60 @@ function handleCompanyTypeUpdate(data) {
 
   // NOTE: Removed auto-refresh of vessel cards - overlays should not be auto-refreshed
   // Vessel catalog will update when user reopens it
+}
+
+/**
+ * Handles staff training points updates from backend.
+ * Updates the company profile overlay if open.
+ */
+function handleStaffTrainingPointsUpdate(data) {
+  const { staff_training_points, ceo_level, experience_points, levelup_experience_points } = data;
+
+  if (AUTOPILOT_LOG_LEVEL === 'detailed') {
+    console.log(`[Staff] Training points update: ${staff_training_points}, Level: ${ceo_level}, XP: ${experience_points}/${levelup_experience_points}`);
+  }
+
+  // Update company profile overlay if open
+  const companyProfileOverlay = document.getElementById('companyProfileOverlay');
+  if (companyProfileOverlay && !companyProfileOverlay.classList.contains('hidden')) {
+    // Update training points display
+    const trainingPointsElement = document.querySelector('.company-profile-section-title span[style*="float: right"]');
+    if (trainingPointsElement && trainingPointsElement.textContent.includes('💪')) {
+      trainingPointsElement.textContent = `💪 ${staff_training_points}`;
+    }
+  }
+}
+
+/**
+ * Handles staff updates from salary/training changes.
+ * Updates the company profile overlay with new staff data.
+ */
+function handleStaffUpdate(data) {
+  const { staff_type, staff, user } = data;
+
+  if (AUTOPILOT_LOG_LEVEL === 'detailed') {
+    console.log(`[Staff] Staff update: ${staff_type}, Salary: ${staff.salary}, Morale: ${staff.morale}`);
+  }
+
+  // Update company profile overlay if open
+  const companyProfileOverlay = document.getElementById('companyProfileOverlay');
+  if (companyProfileOverlay && !companyProfileOverlay.classList.contains('hidden')) {
+    // Trigger event for company-profile.js to handle
+    window.dispatchEvent(new CustomEvent('staff_update_received', { detail: data }));
+
+    // Also reload staff data to update display
+    if (window.loadStaffDataFromWebSocket) {
+      window.loadStaffDataFromWebSocket(data);
+    }
+  }
+
+  // Update training points if user data included
+  if (user && user.staff_training_points !== undefined) {
+    const trainingPointsElement = document.querySelector('.company-profile-section-title span[style*="float: right"]');
+    if (trainingPointsElement && trainingPointsElement.textContent.includes('💪')) {
+      trainingPointsElement.textContent = `💪 ${user.staff_training_points}`;
+    }
+  }
 }
 
 /**
@@ -2651,11 +2898,22 @@ async function handleHijackingUpdate(data) {
   }
 
   // Handle auto-negotiate progress updates (data.data.action exists)
-  const { action, case_id, round, your_offer, pirate_demand, pirate_counter, final_price, threshold, final_amount, vessel_name } = data.data || {};
+  const { action, case_id, round, your_offer, pirate_demand, pirate_counter, final_price, threshold, final_amount, vessel_name, counter_offer_number, max_counter_offers } = data.data || {};
 
   // Only show live progress notifications, not side notifications
   if (action === 'offer_submitted') {
-    const message = `☠️ <strong>Captain Blackbeard #${case_id}</strong> Round ${round}<br>` +
+    // Disable hijacking buttons while autopilot is negotiating
+    const actionsDiv = document.getElementById(`hijacking-actions-${case_id}`);
+    if (actionsDiv) {
+      const buttons = actionsDiv.querySelectorAll('button');
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      });
+    }
+
+    const message = `☠️ <strong>Captain Blackbeard #${case_id}</strong> Offer ${counter_offer_number}/${max_counter_offers}<br>` +
                     `Bot offering: <strong>$${your_offer?.toLocaleString()}</strong><br>` +
                     `Pirate demand: $${pirate_demand?.toLocaleString()}`;
     showAutoPilotNotification(message, 'info', 5000);
@@ -2667,8 +2925,19 @@ async function handleHijackingUpdate(data) {
                     `<span style="color: #10b981;">↓ Reduced by $${reduction?.toLocaleString()} (${percentReduction}%)</span>`;
     showAutoPilotNotification(message, 'success', 5000);
   } else if (action === 'accepting_price') {
+    // Keep buttons disabled while accepting
+    const actionsDiv = document.getElementById(`hijacking-actions-${case_id}`);
+    if (actionsDiv) {
+      const buttons = actionsDiv.querySelectorAll('button');
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      });
+    }
+
     const message = `☠️ <strong>Captain Blackbeard #${case_id}</strong><br>` +
-                    `✅ Price below $${threshold?.toLocaleString()} threshold<br>` +
+                    `✅ ${threshold ? `Price below $${threshold?.toLocaleString()} threshold or max offers reached` : 'Accepting offer'}<br>` +
                     `Accepting final price: <strong>$${final_price?.toLocaleString()}</strong>`;
     showAutoPilotNotification(message, 'success', 5000);
   } else if (action === 'hijacking_resolved') {
@@ -2691,6 +2960,17 @@ async function handleHijackingUpdate(data) {
       });
     }
 
+    // Re-enable buttons (case is resolved)
+    const actionsDiv = document.getElementById(`hijacking-actions-${case_id}`);
+    if (actionsDiv) {
+      const buttons = actionsDiv.querySelectorAll('button');
+      buttons.forEach(btn => {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+      });
+    }
+
     // Refresh messenger to show Captain Blackbeard signature
     if (window.refreshMessengerChatList) {
       window.refreshMessengerChatList();
@@ -2703,6 +2983,17 @@ async function handleHijackingUpdate(data) {
     // In-app notification
     if (settings.autoPilotNotifications && settings.notifyCaptainBlackbeardInApp && window.showSideNotification) {
       window.showSideNotification(blackbeardErrorMessage, 'error', 12000);
+    }
+
+    // Re-enable buttons (case failed)
+    const actionsDiv = document.getElementById(`hijacking-actions-${case_id}`);
+    if (actionsDiv) {
+      const buttons = actionsDiv.querySelectorAll('button');
+      buttons.forEach(btn => {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+      });
     }
 
     // Desktop notification

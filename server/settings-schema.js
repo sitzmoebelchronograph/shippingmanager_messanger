@@ -174,8 +174,14 @@ const SETTINGS_SCHEMA = {
   chatbotHelpDMEnabled: false,            // Help does NOT work in DMs
   chatbotHelpAliases: ['commands', 'help'],  // Alternative command words
 
+  chatbotWelcomeCommandEnabled: false,    // Welcome command disabled by default (Admin only: CEO, COO, Management, Interim CEO)
+
   chatbotDMCommandsEnabled: false,
   chatbotCustomCommands: [],
+
+  // Alliance Management
+  allianceWelcomeSubject: 'Welcome to [allianceName]',
+  allianceWelcomeMessage: 'Welcome to our Alliance!\nJoin the Ally Chat and say Hello :)',
 
   // Campaign Data (cached from API)
   company_type: null  // User's company type from game API (e.g., ['container', 'tanker'])

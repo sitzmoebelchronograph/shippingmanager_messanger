@@ -1353,7 +1353,6 @@ function getFuelEfficiencyClass(factor) {
 
 // Track if pending view is active
 let isPendingViewActive = false;
-let savedFiltersBeforePending = null;
 
 export async function showPendingVessels(pendingVessels) {
   // Toggle pending view
@@ -1370,9 +1369,8 @@ export async function showPendingVessels(pendingVessels) {
     return;
   }
 
-  // Entering pending view - save current filters
+  // Entering pending view
   isPendingViewActive = true;
-  savedFiltersBeforePending = JSON.parse(JSON.stringify(currentFilters));
 
   const feed = document.getElementById('vesselCatalogFeed');
 
@@ -1827,46 +1825,53 @@ export function showShoppingCart() {
   const dialog = document.createElement('div');
   dialog.className = 'confirm-dialog shopping-cart-dialog';
 
-  // Build cart items HTML
+  // Build cart items HTML in invoice style
   const cartItemsHtml = selectedVessels.map(item => `
-    <div class="cart-item" data-vessel-id="${item.vessel.id}">
-      <div class="cart-item-info">
-        <div class="cart-item-name">${escapeHtml(item.vessel.name)}</div>
-        <div class="cart-item-price">$${formatNumber(item.vessel.price)}</div>
-      </div>
-      <div class="cart-item-controls">
+    <div class="cart-item invoice-line" data-vessel-id="${item.vessel.id}">
+      <span class="invoice-name">${escapeHtml(item.vessel.name)}</span>
+      <span class="invoice-unit-price">$${formatNumber(item.vessel.price)}</span>
+      <div class="invoice-quantity-controls">
         <button class="cart-qty-btn minus" data-vessel-id="${item.vessel.id}">−</button>
         <span class="cart-qty-display">${item.quantity}</span>
         <button class="cart-qty-btn plus" data-vessel-id="${item.vessel.id}">+</button>
-        <button class="cart-remove-btn" data-vessel-id="${item.vessel.id}" title="Remove from cart">🗑️</button>
       </div>
+      <span class="invoice-total">$${formatNumber(item.vessel.price * item.quantity)}</span>
+      <button class="remove-btn-small" data-vessel-id="${item.vessel.id}" title="Remove">×</button>
     </div>
   `).join('');
 
   dialog.innerHTML = `
-    <div class="confirm-dialog-header">
-      <h3>🛒 Shopping Cart</h3>
+    <div class="confirm-dialog-header invoice-header">
+      <h3>Purchase Order Summary</h3>
       <div class="confirm-dialog-buttons">
-        <button class="confirm-dialog-btn cancel" data-action="cancel">Close</button>
-        <button class="confirm-dialog-btn confirm ${!affordable ? 'disabled' : ''}" data-action="checkout" ${!affordable ? 'disabled' : ''}>💰 Checkout</button>
+        <button class="confirm-dialog-btn cancel" data-action="cancel">Cancel</button>
+        <button class="confirm-dialog-btn confirm ${!affordable ? 'disabled' : ''}" data-action="checkout" ${!affordable ? 'disabled' : ''}>Confirm Purchase</button>
       </div>
     </div>
-    <div class="confirm-dialog-body">
-      <div class="cart-items">
+    <div class="confirm-dialog-body invoice-body">
+      <div class="invoice-header-row">
+        <span class="invoice-name">Vessel</span>
+        <span class="invoice-unit-price">Price</span>
+        <span class="invoice-quantity">Qty</span>
+        <span class="invoice-total">Total</span>
+        <span class="invoice-action"></span>
+      </div>
+      <div class="cart-items invoice-items">
         ${cartItemsHtml}
       </div>
-      <div class="cart-summary ${affordable ? 'affordable' : 'too-expensive'}">
-        <div class="summary-row">
-          <span class="label">Total Items:</span>
-          <span class="value">${totalItems} vessel${totalItems === 1 ? '' : 's'}</span>
+      <div class="invoice-separator"></div>
+      <div class="invoice-totals">
+        <div class="invoice-total-row">
+          <span class="invoice-total-label">Total Vessels:</span>
+          <span class="invoice-total-value">${totalItems}</span>
         </div>
-        <div class="summary-row total">
-          <span class="label">Total Cost:</span>
-          <span class="value">$${formatNumber(totalCost)}</span>
+        <div class="invoice-total-row">
+          <span class="invoice-total-label">Cash Available:</span>
+          <span class="invoice-total-value">$${formatNumber(bunkerState.currentCash)}</span>
         </div>
-        <div class="summary-row cash">
-          <span class="label">Cash Available:</span>
-          <span class="value">$${formatNumber(bunkerState.currentCash)}</span>
+        <div class="invoice-total-row grand-total ${!affordable ? 'too-expensive' : ''}">
+          <span class="invoice-total-label">Total Amount:</span>
+          <span class="invoice-total-value">$${formatNumber(totalCost)}</span>
         </div>
       </div>
     </div>

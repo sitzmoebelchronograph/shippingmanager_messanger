@@ -27,6 +27,28 @@
   display: none;
 }
 
+#coopOverlay,
+#allianceDetailsModal,
+#companyProfileOverlay {
+  background: transparent;
+  pointer-events: none;
+}
+
+#coopOverlay .messenger-window,
+#allianceDetailsModal .messenger-window,
+#companyProfileOverlay .messenger-window {
+  pointer-events: auto;
+}
+
+#coopOverlay .messenger-window {
+  width: 30vw;
+  max-width: 30vw;
+  min-width: 30vw;
+  height: 90vh;
+  max-height: 90vh;
+  min-height: 90vh;
+}
+
 /* ============================================
    MESSENGER WINDOW
    ============================================ */
@@ -815,6 +837,11 @@
   font-size: var(--font-size-13);
 }
 
+/* Purchase cart has Qty column */
+.shopping-cart-dialog .invoice-header-row {
+  grid-template-columns: 1fr 110px 130px 100px 30px;
+}
+
 .invoice-line {
   display: grid;
   grid-template-columns: 1fr 100px 100px 30px;
@@ -822,6 +849,11 @@
   align-items: center;
   padding: var(--spacing-8) 0;
   border-bottom: 1px solid var(--color-border-light);
+}
+
+/* Purchase cart has Qty column */
+.shopping-cart-dialog .invoice-line {
+  grid-template-columns: 1fr 110px 130px 100px 30px;
 }
 
 .invoice-line:hover {
@@ -832,6 +864,48 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-4);
+}
+
+.invoice-quantity,
+.invoice-quantity-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-6);
+}
+
+.invoice-quantity-controls .cart-qty-btn {
+  width: 24px;
+  height: 24px;
+  background: var(--slate-800);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-4);
+  color: var(--color-white);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.invoice-quantity-controls .cart-qty-btn:hover {
+  background: var(--slate-700);
+  border-color: var(--color-info);
+}
+
+.invoice-quantity-controls .cart-qty-btn:active {
+  background: var(--slate-600);
+}
+
+.invoice-quantity-controls .cart-qty-display {
+  min-width: 30px;
+  text-align: center;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-13);
 }
 
 .vessel-prices-list {

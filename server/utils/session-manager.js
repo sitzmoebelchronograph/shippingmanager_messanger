@@ -87,9 +87,25 @@ async function getAvailableSessions() {
         try {
             const session = await getSession(userId);
             if (session && session.cookie) {
+                // Load app_platform and app_version if available
+                let appPlatform = null;
+                let appVersion = null;
+
+                if (session.app_platform && isEncrypted(session.app_platform)) {
+                    const accountName = `app_platform_${userId}`;
+                    appPlatform = await decryptData(session.app_platform, accountName);
+                }
+
+                if (session.app_version && isEncrypted(session.app_version)) {
+                    const accountName = `app_version_${userId}`;
+                    appVersion = await decryptData(session.app_version, accountName);
+                }
+
                 available.push({
                     userId: userId,
                     cookie: session.cookie,
+                    appPlatform: appPlatform,
+                    appVersion: appVersion,
                     companyName: session.company_name || 'Unknown',
                     loginMethod: session.login_method || 'unknown',
                     timestamp: session.timestamp

@@ -8,9 +8,28 @@
  */
 
 const fs = require('fs').promises;
-const { getUserId } = require('../utils/api');
+const { getUserId, apiCall } = require('../utils/api');
 const { getSettingsFilePath } = require('../settings-schema');
 const logger = require('../utils/logger');
+
+/**
+ * Check if user has management role in alliance (CEO, COO, Management, Interim CEO)
+ * @param {number} userId - User ID to check
+ * @returns {Promise<boolean>} True if user has management role
+ */
+async function hasManagementRole(userId) {
+    try {
+        const response = await apiCall('/alliance/get-alliance-members', 'POST', {});
+        const members = response?.data?.members || response?.members || [];
+        const member = members.find(m => m.user_id === userId);
+        const role = member?.role || 'member';
+        const allowedRoles = ['ceo', 'coo', 'management', 'interimceo'];
+        return allowedRoles.includes(role);
+    } catch (error) {
+        logger.debug('[ChatBot] Error checking management role:', error);
+        return false; // Fail-secure: deny access on error
+    }
+}
 
 /**
  * Load settings from per-user settings file (settings-{userId}.json)
@@ -28,8 +47,11 @@ async function loadSettings() {
         const data = await fs.readFile(settingsPath, 'utf8');
         const allSettings = JSON.parse(data);
 
+        // Check if user has management role
+        const isManagement = await hasManagementRole(userId);
+
         // Map per-user settings to chatbot settings object
-        const chatbotSettings = mapSettingsToChatBotObject(allSettings);
+        const chatbotSettings = mapSettingsToChatBotObject(allSettings, isManagement);
         logger.debug('[ChatBot] Settings loaded');
         return chatbotSettings;
     } catch (error) {
@@ -41,9 +63,13 @@ async function loadSettings() {
 /**
  * Map per-user settings to chatbot settings object
  * @param {object} settings - Flat per-user settings
+ * @param {boolean} isManagement - Whether user has management role (CEO, COO, Management, Interim CEO)
  * @returns {object} Nested ChatBot settings object
  */
-function mapSettingsToChatBotObject(settings) {
+function mapSettingsToChatBotObject(settings, isManagement = false) {
+    // Welcome command: MUST be disabled if user is not management, regardless of saved setting
+    const welcomeEnabled = isManagement && (settings.chatbotWelcomeCommandEnabled === true);
+
     return {
         enabled: settings.chatbotEnabled || false,
         commandPrefix: settings.chatbotPrefix || '!',
@@ -63,6 +89,12 @@ function mapSettingsToChatBotObject(settings) {
                 responseType: 'dm',
                 adminOnly: false,
                 aliases: settings.chatbotHelpAliases || ['commands', 'help']
+            },
+            welcome: {
+                enabled: welcomeEnabled, // Only enabled if user is management AND setting is true
+                responseType: 'dm',
+                adminOnly: true, // Requires management role (CEO, COO, Management, Interim CEO)
+                aliases: []
             }
         },
         scheduledMessages: {
@@ -101,6 +133,11 @@ function getDefaultChatBotObject() {
                 enabled: true,
                 responseType: 'dm',
                 adminOnly: false
+            },
+            welcome: {
+                enabled: true,
+                responseType: 'dm',
+                adminOnly: true
             }
         },
         scheduledMessages: {

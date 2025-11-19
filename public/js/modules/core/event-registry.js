@@ -154,7 +154,8 @@ export function registerDialogEventListeners(handlers, settings, testBrowserNoti
     closeSettings,
     closeContactList,
     closeCampaignsOverlay,
-    closeCoopOverlay
+    closeCoopOverlay,
+    closeAllianceCoopOverlay
   } = handlers;
 
   // Settings wrapper
@@ -171,8 +172,8 @@ export function registerDialogEventListeners(handlers, settings, testBrowserNoti
   // Close campaigns overlay
   document.getElementById('closeCampaignsBtn').addEventListener('click', closeCampaignsOverlay);
 
-  // Close coop overlay
-  document.getElementById('closeCoopBtn').addEventListener('click', closeCoopOverlay);
+  // Close coop overlay (now uses alliance-tabs module)
+  document.getElementById('closeCoopBtn').addEventListener('click', closeAllianceCoopOverlay || closeCoopOverlay);
 
   // Test notification button
   document.getElementById('testAlertBtn').addEventListener('click', testBrowserNotification);
@@ -663,10 +664,8 @@ export function registerBunkerListeners(handlers) {
 
 /**
  * Register notification permission button listener.
- *
- * @param {Object} settings - Settings object reference
  */
-export function registerNotificationPermissionListener(settings) {
+export function registerNotificationPermissionListener() {
   const notificationBtn = document.getElementById('notificationBtn');
   if (!notificationBtn) return;
 
@@ -913,6 +912,15 @@ export function registerChatBotSettingsListeners(settings) {
     });
   }
 
+  // Welcome command enabled
+  const cmdWelcomeCheckbox = document.getElementById('cmdWelcome');
+  if (cmdWelcomeCheckbox) {
+    cmdWelcomeCheckbox.addEventListener('change', function() {
+      settings.chatbotWelcomeCommandEnabled = this.checked;
+      saveSettings(settings);
+    });
+  }
+
   // DM commands enabled
   const enableDMCommandsCheckbox = document.getElementById('enableDMCommands');
   if (enableDMCommandsCheckbox) {
@@ -1022,6 +1030,9 @@ function createCustomCommandElement(index, cmd, settings) {
     </div>
   `;
 
+  // Debounce timer for auto-save
+  let saveTimer = null;
+
   // Add event listeners for text inputs
   commandDiv.querySelectorAll('input[type="text"]').forEach(input => {
     input.addEventListener('input', function() {
@@ -1029,7 +1040,11 @@ function createCustomCommandElement(index, cmd, settings) {
       const field = this.dataset.field;
       if (settings.chatbotCustomCommands[idx]) {
         settings.chatbotCustomCommands[idx][field] = this.value;
-        saveSettings(settings);
+        // Debounce save - only save after 1 second of no typing
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+          saveSettings(settings);
+        }, 1000);
       }
     });
   });
@@ -1041,7 +1056,11 @@ function createCustomCommandElement(index, cmd, settings) {
     const idx = parseInt(this.dataset.commandIndex);
     if (settings.chatbotCustomCommands[idx]) {
       settings.chatbotCustomCommands[idx].response = this.value;
-      saveSettings(settings);
+      // Debounce save - only save after 1 second of no typing
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        saveSettings(settings);
+      }, 1000);
     }
     charCounter.textContent = this.value.length;
   });

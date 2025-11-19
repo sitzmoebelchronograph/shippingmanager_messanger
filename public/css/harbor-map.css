@@ -751,7 +751,7 @@
 .action-emoji {
   font-size: 18px;
   cursor: pointer;
-  transition: transform 0.2s ease, filter 0.2s ease;
+  transition: transform 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
   display: inline-block;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
@@ -759,6 +759,33 @@
 .action-emoji:hover {
   transform: scale(1.15);
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.action-emoji.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  filter: grayscale(100%) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+.action-emoji.disabled:hover {
+  transform: none;
+  filter: grayscale(100%) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+.action-emoji.parked {
+  filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.8)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.action-emoji.parked:hover {
+  filter: drop-shadow(0 0 5px rgba(239, 68, 68, 1)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.action-emoji.not-parked {
+  filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.8)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.action-emoji.not-parked:hover {
+  filter: drop-shadow(0 0 5px rgba(34, 197, 94, 1)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
 }
 
 /* Cargo List in History */
@@ -2018,62 +2045,18 @@
   padding: 20px;
 }
 
-/* OpenWeatherMap Legend Styling - 100% transparent background */
+/* OpenWeatherMap Legend Styling */
 .leaflet-control.owm-legend-control {
-  background: transparent !important;
-  border: none !important;
-  border-radius: 0 !important;
-  padding: 8px !important;
-  box-shadow: none !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(0, 0, 0, 0.2) !important;
+  border-radius: 4px !important;
+  padding: 10px !important;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* Force ALL Leaflet controls that contain "legend" or "owm" to be transparent */
-.leaflet-control[class*="legend"],
-.leaflet-control[class*="owm"],
-.leaflet-bar[class*="legend"],
-.leaflet-bar[class*="owm"] {
-  background: transparent !important;
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-/* Target the bottom-left Leaflet control container where legends appear */
-.leaflet-bottom.leaflet-left .leaflet-control {
-  background: transparent !important;
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-/* Override any Leaflet bar styles in bottom-left */
-.leaflet-bottom.leaflet-left .leaflet-bar {
-  background: transparent !important;
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-.owm-legend-item {
-  margin: 2px 0 !important;
-}
-
-.owm-legend-item img {
-  max-height: 200px !important;
-  width: auto !important;
-  opacity: 0.5 !important;
-  clip-path: inset(0 0 0 10px) !important;
-  margin-left: -10px !important;
-}
-
-/* Light theme - invert the image so white becomes black */
-.theme-light .owm-legend-item img {
-  filter: invert(1) contrast(1.5) brightness(0.9) !important;
-}
-
-/* Dark theme - keep normal colors but enhance contrast */
-.theme-dark .owm-legend-item img {
-  filter: contrast(1.3) brightness(1.2) !important;
+.theme-dark .leaflet-control.owm-legend-control {
+  background: rgba(30, 30, 30, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
 }
 
 /* OWM Legend container styling */
@@ -2082,30 +2065,35 @@
   margin-bottom: 10px !important;
 }
 
-/* Make legend more compact */
-.owm-legend-control {
-  font-size: 11px !important;
-  line-height: 1.3 !important;
+.owm-legend-item {
+  margin: 4px 0 !important;
+  line-height: 1.2 !important;
 }
 
-/* Light theme (Standard mode) - black text */
+.owm-legend-item img {
+  max-height: 160px !important;
+  max-width: 200px !important;
+  width: auto !important;
+  height: auto !important;
+  display: block !important;
+}
+
+/* Light theme */
 .theme-light .owm-legend-control {
   color: #000 !important;
 }
 
 .theme-light .owm-legend-item {
   color: #000 !important;
-  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
 }
 
-/* Dark theme (Dark & Satellite mode) - white text */
+/* Dark theme */
 .theme-dark .owm-legend-control {
   color: #fff !important;
 }
 
 .theme-dark .owm-legend-item {
   color: #fff !important;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 /* Override white backgrounds from leaflet-environmental.css */

@@ -52,7 +52,6 @@ const router = express.Router();
 // Centralized data directory for hijack history
 // In dev mode (py start.py): use local ./userdata
 // In packaged mode (.exe): use AppData/Local
-const os = require('os');
 const isPkg = !!process.pkg;
 
 let DATA_DIR;
@@ -833,12 +832,10 @@ router.post('/hijacking/pay', express.json(), async (req, res) => {
 
       // Load existing history
       let historyData = [];
-      let autopilotResolved = false;
       let resolvedAt = null;
       if (fs.existsSync(historyPath)) {
         const existingData = JSON.parse(fs.readFileSync(historyPath, 'utf8'));
         historyData = Array.isArray(existingData) ? existingData : existingData.history;
-        autopilotResolved = existingData.autopilot_resolved;
         resolvedAt = existingData.resolved_at;
       }
 
