@@ -31,6 +31,7 @@ let tabDataCache = {
 };
 let isTabLoading = false;
 let isTabsInitialized = false;
+let managementTabRefreshInterval = null;
 
 // Search tab state
 let searchState = {
@@ -643,6 +644,12 @@ export async function switchTab(tabName) {
 
   currentTab = tabName;
 
+  // Stop management tab auto-refresh if switching away from management
+  if (tabName !== 'management' && managementTabRefreshInterval) {
+    clearInterval(managementTabRefreshInterval);
+    managementTabRefreshInterval = null;
+  }
+
   // Update tab buttons
   const tabButtons = document.querySelectorAll('.alliance-coop-tabs .tab-button');
   tabButtons.forEach(button => {
@@ -670,6 +677,19 @@ export async function switchTab(tabName) {
     await loadTabContent(tabName);
   } finally {
     isTabLoading = false;
+  }
+
+  // Start management tab auto-refresh if switching to management
+  if (tabName === 'management' && !managementTabRefreshInterval) {
+    managementTabRefreshInterval = setInterval(async () => {
+      if (currentTab === 'management') {
+        try {
+          await renderManagementTab();
+        } catch (error) {
+          console.error('[Alliance Tabs] Management tab refresh error:', error);
+        }
+      }
+    }, 10000);
   }
 }
 

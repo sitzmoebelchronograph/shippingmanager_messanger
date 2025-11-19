@@ -3,7 +3,7 @@
 <head>
     
     <meta charset="utf-8">
-    <title>server/autopilot/pilot_fair_hand - Documentation</title>
+    <title>server/utils/contribution-store.js - Documentation</title>
     
     
     <script src="scripts/prettify/prettify.js"></script>
@@ -276,356 +276,171 @@
 
 <div id="main">
     
-    <h1 class="page-title">server/autopilot/pilot_fair_hand</h1>
+    <h1 class="page-title">server/utils/contribution-store.js</h1>
     
 
     
 
 
 
-
-<section>
-
-<header>
     
-        
-            
-        
-    
-</header>
-
-<article>
-    
-        <div class="container-overview">
-        
-            
-                <div class="description usertext"><p>Fair Hand - Auto-COOP Sending Pilot</p>
-<p>Automatically sends available COOP vessels to alliance members.
-Runs every 3 hours (0, 3, 6, 9, 12, 15, 18, 21 UTC).</p></div>
-            
-
-            
-                
-
-
-
-
-<dl class="details">
-    
-    <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>Fair Hand - Auto-COOP Sending Pilot</p>
-<p>Automatically sends available COOP vessels to alliance members.
-Runs every 3 hours (0, 3, 6, 9, 12, 15, 18, 21 UTC).</p></li></ul></dd>
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="server_autopilot_pilot_fair_hand.js.html">server/autopilot/pilot_fair_hand.js</a>, <a href="server_autopilot_pilot_fair_hand.js.html#line1">line 1</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-</dl>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-            
-        
-        </div>
-    
-
-    
-
-    
-
-    
-    
-    
-
-     
-
-    
-
-    
-
-    
-        <h3 class="subsection-title">Methods</h3>
-
-        
-            
-
-    
-
-    <h4 class="name" id="~autoCoop"><span class="type-signature type-signature-async, inner">(async, inner) </span>autoCoop<span class="signature">(autopilotPaused, broadcastToUser, tryUpdateAllData)</span><span class="type-signature"> &rarr; {Promise.&lt;void>}</span></h4>
-
-    
-
-
-
-
-<dl class="details">
-    
-    <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>Automatically sends available COOP vessels to alliance members.
-Runs every 3 hours (0, 3, 6, 9, 12, 15, 18, 21 UTC).</p>
-<p>Logic:</p>
-<ul>
-<li>Check if COOP available</li>
-<li>Filter members who can receive (can_receive_coop === true)</li>
-<li>Sort by total_vessels DESC (largest fleets first)</li>
-<li>Send to each member until all COOP vessels distributed</li>
-</ul></li></ul></dd>
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="server_autopilot_pilot_fair_hand.js.html">server/autopilot/pilot_fair_hand.js</a>, <a href="server_autopilot_pilot_fair_hand.js.html#line32">line 32</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-</dl>
-
-
-
-
-
-
-
-
-
-
-
-
-
-    <h5 class="h5-parameters">Parameters:</h5>
-    
-
-<table class="params">
-    <thead>
-    <tr>
-        
-        <th>Name</th>
-        
-
-        <th>Type</th>
-
-        
-
-        
-
-        <th class="last">Description</th>
-    </tr>
-    </thead>
-
-    <tbody>
-    
-
-        <tr>
-            
-                <td class="name"><code>autopilotPaused</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">boolean</span>
-
-
-
-            
-            </td>
-
-            
-
-            
-
-            <td class="description last"><p>Autopilot pause state</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>broadcastToUser</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">function</span>
-
-
-
-            
-            </td>
-
-            
-
-            
-
-            <td class="description last"><p>WebSocket broadcast function</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>tryUpdateAllData</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">function</span>
-
-
-
-            
-            </td>
-
-            
-
-            
-
-            <td class="description last"><p>Function to update all game data</p></td>
-        </tr>
-
-    
-    </tbody>
-</table>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<h5 class="h5-returns">Returns:</h5>
-
-        
-
-
-<dl class="param-type">
-    <dt>
-        Type
-    </dt>
-    <dd>
-        
-<span class="param-type">Promise.&lt;void></span>
-
-
-
-    </dd>
-</dl>
-
-    
-
-
-
-        
-    
-
-    
-
-    
-</article>
-
-</section>
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @fileoverview Contribution Gain Storage Utility
+ *
+ * Stores alliance contribution points gained from vessel departures for display in vessel history.
+ * Uses JSON file storage with vesselId_timestamp as key.
+ * Architecture is identical to harbor-fee-store.js for consistency.
+ *
+ * @module server/utils/contribution-store
+ */
+
+const fs = require('fs').promises;
+const path = require('path');
+const logger = require('./logger');
+
+const CONTRIBUTIONS_DIR = path.join(__dirname, '../../userdata/contributions');
+
+/**
+ * Ensures contributions directory exists
+ */
+async function ensureDirectory() {
+  try {
+    await fs.mkdir(CONTRIBUTIONS_DIR, { recursive: true });
+  } catch (error) {
+    logger.error('[Contribution Store] Failed to create directory:', error.message);
+  }
+}
+
+/**
+ * Gets file path for user's contribution gains
+ * @param {number} userId - User ID
+ * @returns {string} File path
+ */
+function getFilePath(userId) {
+  return path.join(CONTRIBUTIONS_DIR, `contributions-${userId}.json`);
+}
+
+/**
+ * Loads contribution gains from disk
+ * @param {number} userId - User ID
+ * @returns {Promise&lt;Object>} Contribution gains map { "vesselId_timestamp": contributionGained }
+ */
+async function loadContributionGains(userId) {
+  try {
+    const filePath = getFilePath(userId);
+    const data = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return {}; // File doesn't exist yet
+    }
+    logger.error(`[Contribution Store] Failed to load gains for user ${userId}:`, error.message);
+    return {};
+  }
+}
+
+/**
+ * Saves contribution gain for a vessel trip
+ * @param {number} userId - User ID
+ * @param {number} vesselId - Vessel ID
+ * @param {string} timestamp - Trip timestamp (from created_at or current time)
+ * @param {number} contributionGained - Contribution points gained
+ * @returns {Promise&lt;void>}
+ */
+async function saveContributionGain(userId, vesselId, timestamp, contributionGained) {
+  try {
+    await ensureDirectory();
+
+    const gains = await loadContributionGains(userId);
+    const key = `${vesselId}_${timestamp}`;
+    gains[key] = contributionGained;
+
+    const filePath = getFilePath(userId);
+    await fs.writeFile(filePath, JSON.stringify(gains, null, 2), 'utf8');
+
+    logger.debug(`[Contribution Store] Saved gain for ${key}: ${contributionGained.toFixed(2)} contribution`);
+  } catch (error) {
+    logger.error(`[Contribution Store] Failed to save gain:`, error.message);
+  }
+}
+
+/**
+ * Gets contribution gain for a specific trip
+ * @param {number} userId - User ID
+ * @param {number} vesselId - Vessel ID
+ * @param {string} timestamp - Trip timestamp
+ * @returns {Promise&lt;number|null>} Contribution gain or null if not found
+ */
+async function getContributionGain(userId, vesselId, timestamp) {
+  const gains = await loadContributionGains(userId);
+  const key = `${vesselId}_${timestamp}`;
+  return gains[key] || null;
+}
+
+/**
+ * Enriches vessel history entries with contribution gains with fuzzy timestamp matching
+ *
+ * Timestamps can differ by up to 60 seconds between:
+ * - Logbook entry (when depart API was called)
+ * - Vessel history API (server processing time)
+ *
+ * @param {number} userId - User ID
+ * @param {Array&lt;Object>} historyEntries - Vessel history entries
+ * @returns {Promise&lt;Array&lt;Object>>} History entries with contribution_gained added
+ */
+async function enrichHistoryWithContributions(userId, historyEntries) {
+  const gains = await loadContributionGains(userId);
+
+  return historyEntries.map(entry => {
+    // Try exact match first
+    const exactKey = `${entry.vessel_id}_${entry.created_at}`;
+    if (gains[exactKey]) {
+      return {
+        ...entry,
+        contribution_gained: gains[exactKey]
+      };
+    }
+
+    // Fuzzy match: Find contribution gain within ±60 seconds
+    const entryTimestamp = new Date(entry.created_at).getTime();
+    const TOLERANCE_MS = 60 * 1000; // 60 seconds
+
+    for (const [key, gain] of Object.entries(gains)) {
+      const [vesselId, timestamp] = key.split('_');
+
+      // Check if vessel ID matches
+      if (parseInt(vesselId) !== entry.vessel_id) continue;
+
+      // Check if timestamp is within tolerance
+      const gainTimestamp = new Date(timestamp).getTime();
+      const diff = Math.abs(entryTimestamp - gainTimestamp);
+
+      if (diff &lt;= TOLERANCE_MS) {
+        return {
+          ...entry,
+          contribution_gained: gain
+        };
+      }
+    }
+
+    // No match found
+    return {
+      ...entry,
+      contribution_gained: null
+    };
+  });
+}
+
+module.exports = {
+  saveContributionGain,
+  getContributionGain,
+  enrichHistoryWithContributions
+};
+</code></pre>
+        </article>
+    </section>
 
 
 
