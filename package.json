@@ -1,6 +1,6 @@
 {
   "name": "shippingmanager-copilot",
-  "version": "0.1.4.7-1",
+  "version": "0.1.4.8",
   "description": "Standalone web interface for Shipping Manager chat and game management",
   "main": "app.js",
   "bin": "app.js",
